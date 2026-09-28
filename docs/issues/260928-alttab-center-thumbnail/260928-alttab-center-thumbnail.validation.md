@@ -35,3 +35,28 @@
 
 - 验证脚本每屏首轮偶发 "NOT FOUND"：注入时序竞争（Alt+Tab 偶发未触发 hook），非本次修复范围，实际人工操作不受影响
 - 缩略图在 144DPI 屏上物理尺寸 780px（=520DIP×1.5）属正确的 DPI 渲染，非放大；"放大"的感知来自修复前的跨 DPI 位置错位
+
+## 追加：Alt+Tab 闪烁/不显示 修复（同日）
+
+### 现象
+
+用户补充：两屏（96/144DPI）交替按 Alt+Tab 时，"按一下闪一下、第二次才显示、交替屏一直闪"，且窗口消失时残留一帧黑色。
+
+### 根因（app 内日志 + 外部注入实测确认）
+
+1. **"第二次才显示"**：`HideWindow()` 用 `Dispatcher.BeginInvoke(Hide, Input)` **延迟隐藏**。前一次取消/切换的 Hide() 尚未执行时，窗口仍 `Visibility=Visible`（"幽灵可见"），下一次 Alt+Tab 被误判为已可见而走 else 分支（只切选中项、不重新显示）→ 表现为"闪一下、第二次才有"。交替屏时每次前一次隐藏未落地，叠加放大。
+2. **黑色闪帧**：延迟 Hide 期间 `Opacity=0` 已设但窗口未隐藏，若触发重绘会残留一帧背景色。
+3. **跨 DPI 窗口不显示**：`CenterWindow` 原用手动 `SetWindowPos` 把窗口物理跨屏移动——**窗口显示后跨屏移动会破坏激活状态 → Deactivated → 立即隐藏**。改为 `PrepareWindowAcrossDpi()`：在 **Show() 之前**（隐藏状态下）物理移入目标屏，无失焦问题；DPI 上下文就绪后居中。
+
+### 修复
+
+- `HideWindow()`：延迟 `BeginInvoke(Hide, Input)` → **同步 `Hide()`**（Visibility 立即干净，下次唤起必走显示分支；消除黑帧）
+- 新增 `PrepareWindowAcrossDpi()`：显示前跨 DPI 时隐藏窗口物理移入目标屏（挂接 3 处显示路径）
+- `CenterWindow()`：跨 DPI 分支改为先按当前上下文定位（窗口保证可见）→ `BeginInvoke(Loaded)` 中修正居中；移除手动跨屏 SetWindowPos
+
+### 验证
+
+- 同屏连续 3 次 Alt+Tab：全部显示且居中（修复前"第二次才显示"不再出现）
+- app 内日志确认：跨 DPI 唤起时 Show/CenterWindow/DPI 上下文刷新全部正确执行、窗口按目标屏正确居中
+- 注入测试的跨屏窗口"不显示"经日志定位为**注入环境激活局限**（keybd_event 注入无法获得真实物理按键的 SetForegroundWindow 前台权限，窗口显示后立即 Deactivated；app 内部显示流程正确），**需用户实机确认**
+- 快速"按一下"即松手 Alt 时，AutoSwitch=True 会在松开时切换目标窗口（`_altTabAutoSwitch`）→ 表现为"闪一下"，此为 AutoSwitch 既有设计（按住浏览、松开切换），非本次修复范围

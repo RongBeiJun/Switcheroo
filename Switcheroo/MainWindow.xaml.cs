@@ -411,6 +411,7 @@ namespace Switcheroo
                 if (Visibility != Visibility.Visible)
                 {
                    _foregroundWindow = SystemWindow.ForegroundWindow;
+                    PrepareWindowAcrossDpi();
                     Show();
                     Activate();
                     LoadData(InitialFocus.NextItem);
@@ -645,6 +646,33 @@ namespace Switcheroo
         }
 
         /// <summary>
+        /// 显示窗口前调用：若目标屏（鼠标所在屏）与窗口当前 DPI 上下文不一致（跨 DPI 屏切换），
+        /// 先在隐藏状态下把窗口物理移入目标屏，让 Windows 刷新窗口的 DPI 上下文。
+        /// 关键：窗口显示之后再跨屏移动会破坏激活状态（Deactivated → 立即隐藏，表现为“闪一下/不显示”）；
+        /// 隐藏状态下移动窗口则没有失焦问题。首次显示（hwnd 尚不存在）无需处理。
+        /// </summary>
+        private void PrepareWindowAcrossDpi()
+        {
+            var hwnd = new WindowInteropHelper(this).Handle;
+            if (hwnd == IntPtr.Zero)
+            {
+                return;
+            }
+
+            var screen = MultiMonitorHelper.GetMouseScreen();
+            var targetDpi = (int)Math.Round(96 * MultiMonitorHelper.GetDpiScale(screen));
+            var curDpi = MultiMonitorHelper.GetWindowDpi(hwnd);
+            if (curDpi == targetDpi)
+            {
+                return;
+            }
+
+            MultiMonitorHelper.MoveWindowPhysical(hwnd,
+                screen.Bounds.X + screen.Bounds.Width / 2,
+                screen.Bounds.Y + screen.Bounds.Height / 2);
+        }
+
+        /// <summary>
         /// Place the Switcheroo window in the center of the active screen (where the mouse is)
         /// </summary>
         private void CenterWindow()
@@ -668,15 +696,16 @@ namespace Switcheroo
 
             var hwnd = new WindowInteropHelper(this).Handle;
             var targetDpi = (int)Math.Round(96 * MultiMonitorHelper.GetDpiScale(screen));
-            if (hwnd != IntPtr.Zero && MultiMonitorHelper.GetWindowDpi(hwnd) != targetDpi)
+            var curDpi = MultiMonitorHelper.GetWindowDpi(hwnd);
+            if (hwnd != IntPtr.Zero && curDpi != targetDpi)
             {
-                // 跨 DPI 监视器切换：此时窗口的 DPI 上下文还是旧屏的，WPF 会把稍后设置的
-                // Left/Top（DIP）按旧 DPI 换算成物理位置，而窗口尺寸却按新 DPI 渲染，
-                // 位置与尺寸缩放系数不一致 → 窗口偏移（150% 副屏实测偏差数百像素）。
-                // 先把窗口物理移入目标屏，触发 DPI 上下文刷新，再在布局完成后重新居中。
-                MultiMonitorHelper.MoveWindowPhysical(hwnd,
-                    screen.Bounds.X + screen.Bounds.Width / 2,
-                    screen.Bounds.Y + screen.Bounds.Height / 2);
+                // 跨 DPI 监视器切换：窗口已由 PrepareWindowAcrossDpi 在显示前移到目标屏，
+                // 但 WM_DPICHANGED 可能尚未处理完，DPI 上下文仍是旧屏，此时 Left/Top（DIP）
+                // 会被按旧 DPI 换算成物理位置，而尺寸却按新 DPI 渲染 → 位置偏。
+                // 先按当前上下文定位（保证窗口可见），等 DPI 上下文刷新并重新布局后修正。
+                // 注意：不能用手动 SetWindowPos 跨屏移动窗口——显示后跨屏移动会破坏激活，
+                // 触发 Deactivated → 立即隐藏（表现为“闪一下/不显示”）。
+                SetCenteredPosition(dipBounds);
 
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
@@ -723,7 +752,12 @@ namespace Switcheroo
 
             _altTabAutoSwitch = false;
             Opacity = 0;
-            Dispatcher.BeginInvoke(new Action(Hide), DispatcherPriority.Input);
+
+            // 同步隐藏（原为 BeginInvoke(Hide, Input) 延迟隐藏）：
+            // 延迟隐藏会让窗口短暂保持 Visibility=Visible（“幽灵可见”），
+            // 此时立刻再次 Alt+Tab 会误判为已可见而走 else 分支不显示 → 表现为“闪一下”。
+            // 同时消除隐藏瞬间残留一帧窗口背景的黑色闪影。
+            Hide();
         }
 
         #endregion
@@ -826,6 +860,7 @@ namespace Switcheroo
                 tb.IsEnabled = true;
 
                 _foregroundWindow = SystemWindow.ForegroundWindow;
+                PrepareWindowAcrossDpi();
                 Show();
                 Activate();
                 Keyboard.Focus(tb);
@@ -914,6 +949,9 @@ namespace Switcheroo
                 altKey.Press();
                 altKeyPressed = true;
             }
+
+            // 在窗口显示前先把窗口移到目标屏（若跨 DPI）：显示后移动会破坏激活导致窗口立即隐藏
+            PrepareWindowAcrossDpi();
 
             // Bring the Switcheroo window to the foreground
             Show();
