@@ -1,0 +1,58 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:system="clr-namespace:System;assembly=mscorlib">
+
+    <!-- 主窗口帮助信息 -->
+    <system:String x:Key="HelpTypeToSearch">type to search</system:String>
+    <system:String x:Key="HelpNavigate">tab or ↑↓ to navigate</system:String>
+    <system:String x:Key="HelpNavigateTip">Press tab or ↑↓ to navigate in the list</system:String>
+    <system:String x:Key="HelpEnter">enter to open a window</system:String>
+    <system:String x:Key="HelpEnterTip">Press enter to open the highlighted window</system:String>
+    <system:String x:Key="HelpClose">ctrl+w to close a window</system:String>
+    <system:String x:Key="HelpCloseTip">Press ctrl+w to close the highlighted window</system:String>
+    <system:String x:Key="HelpDismiss">esc to dismiss switcheroo</system:String>
+    <system:String x:Key="HelpDismissTip">Press esc to dismiss the Switcheroo overlay</system:String>
+    <system:String x:Key="SearchPlaceholder">Press Alt + Q to search</system:String>
+
+    <!-- 列表右键菜单 -->
+    <system:String x:Key="ContextClose">Close</system:String>
+    <system:String x:Key="ContextToFront">Bring to Front</system:String>
+    <system:String x:Key="ContextDuplicate">Run Another Instance</system:String>
+
+    <!-- 托盘菜单 -->
+    <system:String x:Key="TrayOptions">&amp;Options</system:String>
+    <system:String x:Key="TrayRunOnStartup">Run on &amp;Startup</system:String>
+    <system:String x:Key="TraySort">Alpha&amp;betical Sort</system:String>
+    <system:String x:Key="TrayExport">Export to &amp;Json</system:String>
+    <system:String x:Key="TrayAbout">&amp;About</system:String>
+    <system:String x:Key="TrayExit">E&amp;xit</system:String>
+
+    <!-- 消息框 -->
+    <system:String x:Key="MsgHotkeyInUseTitle">Hotkey already in use</system:String>
+    <system:String x:Key="MsgHotkeyInUse">The current hotkey for activating Switcheroo is in use by another program.&#10;&#10;You can change the hotkey by right-clicking the Switcheroo icon in the system tray and choosing 'Options'.</system:String>
+    <system:String x:Key="MsgUpdateTitle">Update Available</system:String>
+    <system:String x:Key="MsgUpdateBody">Switcheroo v{0} is available (you have v{1}).&#10;&#10;Do you want to download it?</system:String>
+
+    <!-- 设置窗口 -->
+    <system:String x:Key="OptionsTitle">Switcheroo Options</system:String>
+    <system:String x:Key="OptHotkey">Activate Switcheroo with this shortcut:</system:String>
+    <system:String x:Key="OptAltTab">Activate Switcheroo with Alt+Tab</system:String>
+    <system:String x:Key="OptAltTabTip">Use Switcheroo instead of the integrated task switcher in Windows.</system:String>
+    <system:String x:Key="OptAutoSwitch">Automatically switch window when releasing Alt + Tab</system:String>
+    <system:String x:Key="OptAutoSwitchTip">Faster and more native-like switching between windows.\n\nUse Ctrl + Alt + Tab for displaying Switcheroo with search activated, or press Alt + Q when the Switcheroo overlay appears.</system:String>
+    <system:String x:Key="OptRunAsAdmin">Run as Administrator *</system:String>
+    <system:String x:Key="OptRunAsAdminTip">This is needed if you want Alt + Tab to work when programs running with higher privileges than your user account are in focus.\n\n* Requires a restart of Switcheroo</system:String>
+    <system:String x:Key="OptTheme">Theme</system:String>
+    <system:String x:Key="OptLanguage">Language</system:String>
+    <system:String x:Key="OptOk">OK</system:String>
+    <system:String x:Key="OptCancel">Cancel</system:String>
+    <system:String x:Key="MsgShortcutInUseTitle">Shortcut already in use</system:String>
+    <system:String x:Key="MsgShortcutInUse">Sorry! The selected shortcut for activating Switcheroo is in use by another program. Please choose another.</system:String>
+
+    <!-- 关于窗口 -->
+    <system:String x:Key="AboutTitle">About Switcheroo</system:String>
+    <system:String x:Key="AboutDesc">The humble incremental-search task switcher for Windows</system:String>
+    <system:String x:Key="AboutVersion">Version:</system:String>
+    <system:String x:Key="AboutOk">OK</system:String>
+
+</ResourceDictionary>

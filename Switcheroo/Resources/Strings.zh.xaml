@@ -1,0 +1,58 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:system="clr-namespace:System;assembly=mscorlib">
+
+    <!-- 主窗口帮助信息 -->
+    <system:String x:Key="HelpTypeToSearch">输入以搜索</system:String>
+    <system:String x:Key="HelpNavigate">tab 或 ↑↓ 导航</system:String>
+    <system:String x:Key="HelpNavigateTip">按 tab 或 ↑↓ 在列表中导航</system:String>
+    <system:String x:Key="HelpEnter">enter 打开窗口</system:String>
+    <system:String x:Key="HelpEnterTip">按 enter 打开高亮的窗口</system:String>
+    <system:String x:Key="HelpClose">ctrl+w 关闭窗口</system:String>
+    <system:String x:Key="HelpCloseTip">按 ctrl+w 关闭高亮的窗口</system:String>
+    <system:String x:Key="HelpDismiss">esc 退出 switcheroo</system:String>
+    <system:String x:Key="HelpDismissTip">按 esc 关闭 Switcheroo 覆盖层</system:String>
+    <system:String x:Key="SearchPlaceholder">按 Alt + Q 搜索</system:String>
+
+    <!-- 列表右键菜单 -->
+    <system:String x:Key="ContextClose">关闭</system:String>
+    <system:String x:Key="ContextToFront">置顶</system:String>
+    <system:String x:Key="ContextDuplicate">运行新实例</system:String>
+
+    <!-- 托盘菜单 -->
+    <system:String x:Key="TrayOptions">设置(&amp;O)</system:String>
+    <system:String x:Key="TrayRunOnStartup">开机自启动(&amp;S)</system:String>
+    <system:String x:Key="TraySort">按字母排序(&amp;A)</system:String>
+    <system:String x:Key="TrayExport">导出为 JSON(&amp;J)</system:String>
+    <system:String x:Key="TrayAbout">关于(&amp;A)</system:String>
+    <system:String x:Key="TrayExit">退出(&amp;E)</system:String>
+
+    <!-- 消息框 -->
+    <system:String x:Key="MsgHotkeyInUseTitle">快捷键已被占用</system:String>
+    <system:String x:Key="MsgHotkeyInUse">用于激活 Switcheroo 的当前快捷键已被其他程序占用。&#10;&#10;你可以右键单击系统托盘中的 Switcheroo 图标并选择"设置"来更换快捷键。</system:String>
+    <system:String x:Key="MsgUpdateTitle">发现更新</system:String>
+    <system:String x:Key="MsgUpdateBody">Switcheroo v{0} 已可用（当前为 v{1}）。&#10;&#10;是否下载？</system:String>
+
+    <!-- 设置窗口 -->
+    <system:String x:Key="OptionsTitle">Switcheroo 设置</system:String>
+    <system:String x:Key="OptHotkey">使用以下快捷键激活 Switcheroo:</system:String>
+    <system:String x:Key="OptAltTab">使用 Alt+Tab 激活 Switcheroo</system:String>
+    <system:String x:Key="OptAltTabTip">用 Switcheroo 替代 Windows 内置任务切换器。</system:String>
+    <system:String x:Key="OptAutoSwitch">松开 Alt + Tab 时自动切换窗口</system:String>
+    <system:String x:Key="OptAutoSwitchTip">更快、更贴近原生的窗口切换。\n\n按 Ctrl + Alt + Tab 显示带搜索的 Switcheroo，或在 Switcheroo 覆盖层出现时按 Alt + Q。</system:String>
+    <system:String x:Key="OptRunAsAdmin">以管理员身份运行 *</system:String>
+    <system:String x:Key="OptRunAsAdminTip">当聚焦的程序以高于当前用户账户的权限运行时，需要此项才能让 Alt + Tab 正常工作。\n\n* 需要重启 Switcheroo</system:String>
+    <system:String x:Key="OptTheme">主题</system:String>
+    <system:String x:Key="OptLanguage">语言</system:String>
+    <system:String x:Key="OptOk">确定</system:String>
+    <system:String x:Key="OptCancel">取消</system:String>
+    <system:String x:Key="MsgShortcutInUseTitle">快捷键已被占用</system:String>
+    <system:String x:Key="MsgShortcutInUse">抱歉！用于激活 Switcheroo 的所选快捷键已被其他程序占用，请另选一个。</system:String>
+
+    <!-- 关于窗口 -->
+    <system:String x:Key="AboutTitle">关于 Switcheroo</system:String>
+    <system:String x:Key="AboutDesc">面向 Windows 的增量式搜索任务切换器</system:String>
+    <system:String x:Key="AboutVersion">版本:</system:String>
+    <system:String x:Key="AboutOk">确定</system:String>
+
+</ResourceDictionary>

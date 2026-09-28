@@ -18,6 +18,7 @@
  * along with Switcheroo.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+using System;
 using System.Text;
 using System.Windows;
 using System.Windows.Forms;
@@ -69,6 +70,18 @@ namespace Switcheroo
             RunAsAdministrator.IsChecked = Settings.Default.RunAsAdmin;
             Theme.Text = Settings.Default.Theme;
 
+            foreach (var item in LanguageComboBox.Items)
+            {
+                if (((System.Windows.Controls.ComboBoxItem)item).Tag as string == Settings.Default.Language)
+                {
+                    LanguageComboBox.SelectedItem = item;
+                    break;
+                }
+            }
+            if (LanguageComboBox.SelectedItem == null)
+            {
+                LanguageComboBox.SelectedIndex = 0;
+            }
         }
 
         private void Cancel_Click(object sender, RoutedEventArgs e)
@@ -99,9 +112,8 @@ namespace Switcheroo
             }
             catch (HotkeyAlreadyInUseException)
             {
-                var boxText = "Sorry! The selected shortcut for activating Switcheroo is in use by another program. " +
-                              "Please choose another.";
-                MessageBox.Show(boxText, "Shortcut already in use", MessageBoxButton.OK, MessageBoxImage.Warning);
+                var boxText = Localization.Get("MsgShortcutInUse");
+                MessageBox.Show(boxText, Localization.Get("MsgShortcutInUseTitle"), MessageBoxButton.OK, MessageBoxImage.Warning);
                 closeOptionsWindow = false;
             }
 
@@ -110,6 +122,12 @@ namespace Switcheroo
             Settings.Default.AutoSwitch = AutoSwitch.IsChecked.GetValueOrDefault();
             Settings.Default.RunAsAdmin = RunAsAdministrator.IsChecked.GetValueOrDefault();
             Settings.Default.Theme = Theme.Text;
+
+            var selectedLang = (LanguageComboBox.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Tag as string;
+            if (!String.IsNullOrEmpty(selectedLang))
+            {
+                Localization.Apply(selectedLang);
+            }
             Settings.Default.Save();
 
             if (closeOptionsWindow)

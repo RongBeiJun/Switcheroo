@@ -70,7 +70,9 @@ namespace Switcheroo
         private bool _sortWinList = false;
 
         private string processFilterText = "";
-        List<string> processList = new List<String> { "chrome", "code","idea", "explorer" };
+        private System.Windows.Forms.Screen _activeScreen;
+        private ThumbnailPreviewWindow _thumbnailPreviewWindow;
+        private readonly System.Windows.Threading.DispatcherTimer _hidePreviewTimer;
 
 
         public MainWindow()
@@ -93,33 +95,95 @@ namespace Switcheroo
 
             Opacity = 0;
 
-            SetUpProcessFilter();
+            _hidePreviewTimer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(120)
+            };
+            _hidePreviewTimer.Tick += (s, e) =>
+            {
+                _hidePreviewTimer.Stop();
+                // 鼠标仍停留在预览窗口或列表上则不隐藏，供用户停留查看
+                if (MouseOverPreviewWindowOrList())
+                {
+                    _hidePreviewTimer.Start();
+                    return;
+                }
+                HideThumbnailPreview();
+            };
+        }
+
+        private bool MouseOverPreviewWindowOrList()
+        {
+            if (_thumbnailPreviewWindow != null && _thumbnailPreviewWindow.Visibility == Visibility.Visible)
+            {
+                var previewBounds = new Rect(_thumbnailPreviewWindow.Left, _thumbnailPreviewWindow.Top,
+                    _thumbnailPreviewWindow.ActualWidth, _thumbnailPreviewWindow.ActualHeight);
+                if (previewBounds.Contains(MultiMonitorHelper.ToDIP(new System.Drawing.PointF(
+                    System.Windows.Forms.Cursor.Position.X,
+                    System.Windows.Forms.Cursor.Position.Y))))
+                {
+                    return true;
+                }
+            }
+
+            var cursorDIP = MultiMonitorHelper.ToDIP(new System.Drawing.PointF(
+                System.Windows.Forms.Cursor.Position.X,
+                System.Windows.Forms.Cursor.Position.Y));
+            var listPoint = lb.PointFromScreen(cursorDIP);
+            return lb.IsMouseOver || (listPoint.X >= 0 && listPoint.Y >= 0);
         }
         #region process filter
 
-        //qxx 初始化process过滤器
+        /**
+         * 根据当前已开启窗口列表生成程序过滤标签, 动态适应; 
+         * 按进程名排序保证序号稳定。 
+         */
         private void SetUpProcessFilter()
         {
-            String filters = Properties.Settings.Default.ProcessFilters;
-            if (!String.IsNullOrEmpty(filters))
+            spProcessFilter.Children.Clear();
+
+            var processes = _unfilteredWindowList?
+                .Select(w => w.ProcessTitle)
+                .Where(p => !String.IsNullOrEmpty(p))
+                .Distinct()
+                .OrderBy(p => p)
+                .Take(10)
+                .ToList();
+            if (processes == null) return;
+
+            for (var i = 0; i < processes.Count; i++)
             {
-                processList = filters.Split(',').ToList();
-            }
-            var n = 0;
-            foreach (var process in processList)
-            {
-                n++;
+                var process = processes[i];
                 var tb = new TextBlock()
                 {
-                    Text = n + "." + process,
-                    FontSize = 17,
-                    Tag = process
+                    Text = (i + 1) + "." + process,
+                    FontSize = 20,
+                    Tag = process,
+                    Background = Brushes.Transparent
                 };
-                tb.Foreground = Brushes.Black;
+                tb.Foreground = processFilterText == process ? Brushes.Red : Brushes.Black;
                 tb.Margin = new Thickness(2, 0, 2, 0);
                 tb.MouseDown += TbProcessFilter_MouseDown;
                 spProcessFilter.Children.Add(tb);
             }
+        }
+
+        /**
+         * 设置当前进程过滤并刷新界面; 
+         * process 为空表示清除过滤。 
+         */
+        private void SetProcessFilter(string process)
+        {
+            if (String.IsNullOrEmpty(process) || this.processFilterText == process)
+            {
+                this.processFilterText = "";
+            }
+            else
+            {
+                this.processFilterText = process;
+            }
+            SetUpProcessFilter();
+            RefreshFilter();
         }
 
         /**
@@ -128,25 +192,8 @@ namespace Switcheroo
         private void TbProcessFilter_MouseDown(object sender, MouseButtonEventArgs e)
         {
             var tb = sender as TextBlock;
-            var process = tb.Tag as String;
-            //重置颜色
-            foreach (var item in spProcessFilter.Children)
-            {
-                (item as TextBlock).Foreground = Brushes.Black;
-            }
-
-            if (this.processFilterText == process || String.IsNullOrEmpty(process))
-            {
-                this.processFilterText = "";
-            }
-            else
-            {
-                this.processFilterText = process;
-                tb.Foreground = Brushes.Red;
-
-            }
-            TextChanged(null, null);
-         }
+            SetProcessFilter(tb?.Tag as String);
+        }
 
         /**
          * 切换对应index的程序, 从0开始; 
@@ -160,11 +207,11 @@ namespace Switcheroo
             }
             if(index < 0)
             {
-                TbProcessFilter_MouseDown(new TextBlock(), null);
+                SetProcessFilter("");
                 return;
             }
             var  tb = spProcessFilter.Children[index] as TextBlock;
-            TbProcessFilter_MouseDown(tb, null);
+            SetProcessFilter(tb.Tag as String);
         }
         #endregion
 
@@ -223,49 +270,43 @@ namespace Switcheroo
                 }
                 else if (args.SystemKey == Key.D1 && Keyboard.Modifiers.HasFlag(ModifierKeys.Alt))
                 {
-                    //SwitchToIndex(0);
                     switchProcessFilter(0);
                 }
                 else if (args.SystemKey == Key.D2 && Keyboard.Modifiers.HasFlag(ModifierKeys.Alt))
                 {
-                    //SwitchToIndex(1);
                     switchProcessFilter(1);
                 }
                 else if (args.SystemKey == Key.D3 && Keyboard.Modifiers.HasFlag(ModifierKeys.Alt))
                 {
-                    //SwitchToIndex(2);
                     switchProcessFilter(2);
                 }
                 else if (args.SystemKey == Key.D4 && Keyboard.Modifiers.HasFlag(ModifierKeys.Alt))
                 {
-                    //SwitchToIndex(3);
                     switchProcessFilter(3);
                 }
                 else if (args.SystemKey == Key.D5 && Keyboard.Modifiers.HasFlag(ModifierKeys.Alt))
                 {
-                    //SwitchToIndex(4);
                     switchProcessFilter(4);
-
                 }
                 else if (args.SystemKey == Key.D6 && Keyboard.Modifiers.HasFlag(ModifierKeys.Alt))
                 {
-                    SwitchToIndex(5);
+                    switchProcessFilter(5);
                 }
                 else if (args.SystemKey == Key.D7 && Keyboard.Modifiers.HasFlag(ModifierKeys.Alt))
                 {
-                    SwitchToIndex(6);
+                    switchProcessFilter(6);
                 }
                 else if (args.SystemKey == Key.D8 && Keyboard.Modifiers.HasFlag(ModifierKeys.Alt))
                 {
-                    SwitchToIndex(7);
+                    switchProcessFilter(7);
                 }
                 else if (args.SystemKey == Key.D9 && Keyboard.Modifiers.HasFlag(ModifierKeys.Alt))
                 {
-                    SwitchToIndex(8);
+                    switchProcessFilter(8);
                 }
                 else if (args.SystemKey == Key.D0 && Keyboard.Modifiers.HasFlag(ModifierKeys.Alt))
                 {
-                    SwitchToIndex(9);
+                    switchProcessFilter(-1);
                 }
             };
 
@@ -291,17 +332,6 @@ namespace Switcheroo
             };
         }
 
-        private void SwitchToIndex(int i)
-        {
-            if (i < lb.Items.Count)
-            {
-                lb.SelectedIndex = i;
-                ScrollSelectedItemIntoView();
-                Switch();
-                HideWindow();
-            }
-        }
-
         private void SetUpHotKey()
         {
             _hotkey = new HotKey();
@@ -316,11 +346,8 @@ namespace Switcheroo
             }
             catch (HotkeyAlreadyInUseException)
             {
-                var boxText = "The current hotkey for activating Switcheroo is in use by another program." +
-                              Environment.NewLine +
-                              Environment.NewLine +
-                              "You can change the hotkey by right-clicking the Switcheroo icon in the system tray and choosing 'Options'.";
-                MessageBox.Show(boxText, "Hotkey already in use", MessageBoxButton.OK, MessageBoxImage.Warning);
+                var boxText = Localization.Get("MsgHotkeyInUse");
+                MessageBox.Show(boxText, Localization.Get("MsgHotkeyInUseTitle"), MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
 
@@ -332,34 +359,49 @@ namespace Switcheroo
 
         private void SetUpNotifyIcon()
         {
-            var icon = Properties.Resources.icon;
-            
-            var runOnStartupMenuItem = new MenuItem("Run on &Startup", (s, e) => RunOnStartup(s as MenuItem))
+            _notifyIcon = new NotifyIcon
+            {
+                Text = "Switcheroo",
+                Icon = Properties.Resources.icon,
+                Visible = true
+            };
+            _notifyIcon.MouseClick += new System.Windows.Forms.MouseEventHandler(NotifyIconMouseClick);
+
+            BuildTrayMenu();
+
+            // 语言切换时重建托盘菜单
+            Localization.LanguageChanged += BuildTrayMenu;
+        }
+
+        private MenuItem _sortAZMenuItem;
+
+        private void BuildTrayMenu()
+        {
+            if (_notifyIcon == null) return;
+
+            var runOnStartupMenuItem = new MenuItem(Localization.Get("TrayRunOnStartup"), (s, e) => RunOnStartup(s as MenuItem))
             {
                 Checked = new AutoStart().IsEnabled
             };
 
-            var sortAZMenuItem = new MenuItem("Alpha&betical Sort", (s, e) => sortAZMenuItem_Click(s as MenuItem));
-
-            var exportToJSON_MenuItem = new MenuItem("Export to &Json", (s, e) => exportToJSON_MenuItem_Click(s as MenuItem));
-
-            _notifyIcon = new NotifyIcon
+            if (_sortAZMenuItem == null)
             {
-                Text = "Switcheroo",
-                Icon = icon,
-                Visible = true,
-                ContextMenu = new System.Windows.Forms.ContextMenu(new[]
-                {
-                    new MenuItem("&Options", (s, e) => Options()),
-                    runOnStartupMenuItem,
-                    sortAZMenuItem,
-                    exportToJSON_MenuItem,
-                    new MenuItem("&About", (s, e) => About()),
-                    new MenuItem("E&xit", (s, e) => Quit())
-                })
-            };
+                _sortAZMenuItem = new MenuItem("", (s, e) => sortAZMenuItem_Click(s as MenuItem));
+            }
+            _sortAZMenuItem.Text = Localization.Get("TraySort");
+            _sortAZMenuItem.Checked = _sortWinList;
 
-            _notifyIcon.MouseClick += new System.Windows.Forms.MouseEventHandler(NotifyIconMouseClick);
+            var exportToJSON_MenuItem = new MenuItem(Localization.Get("TrayExport"), (s, e) => exportToJSON_MenuItem_Click(s as MenuItem));
+
+            _notifyIcon.ContextMenu = new System.Windows.Forms.ContextMenu(new[]
+            {
+                new MenuItem(Localization.Get("TrayOptions"), (s, e) => Options()),
+                runOnStartupMenuItem,
+                _sortAZMenuItem,
+                exportToJSON_MenuItem,
+                new MenuItem(Localization.Get("TrayAbout"), (s, e) => About()),
+                new MenuItem(Localization.Get("TrayExit"), (s, e) => Quit())
+            });
         }
 
         void NotifyIconMouseClick(object sender, System.Windows.Forms.MouseEventArgs e)
@@ -414,9 +456,9 @@ namespace Switcheroo
                 {
                     var result = MessageBox.Show(
                         string.Format(
-                            "Switcheroo v{0} is available (you have v{1}).\r\n\r\nDo you want to download it?",
+                            Localization.Get("MsgUpdateBody"),
                             latestVersion, currentVersion),
-                        "Update Available", MessageBoxButton.YesNo, MessageBoxImage.Information);
+                        Localization.Get("MsgUpdateTitle"), MessageBoxButton.YesNo, MessageBoxImage.Information);
                     if (result == MessageBoxResult.Yes)
                     {
                         Process.Start("https://github.com/kvakulo/Switcheroo/releases/latest");
@@ -486,7 +528,11 @@ namespace Switcheroo
         /// </summary>
         private void LoadData(InitialFocus focus)
         {
-            _unfilteredWindowList = new WindowFinder().GetWindows().Select(window => new AppWindowViewModel(window)).ToList();
+            _activeScreen = MultiMonitorHelper.GetMouseScreen();
+
+            var windows = new WindowFinder().GetWindows().Select(window => new AppWindowViewModel(window)).ToList();
+            _unfilteredWindowList = FilterWindowsOnScreen(windows);
+
             //qxx
             switchProcessFilter(-1);
 
@@ -546,6 +592,40 @@ namespace Switcheroo
             return window1.HWnd == window2.HWnd || window1.Process.Id == window2.Process.Id;
         }
 
+        /// <summary>
+        /// 只保留落在当前激活屏幕内的窗口。
+        /// 最小化窗口用恢复位置（rcNormalPosition），其余用实际窗口矩形 GetWindowRect，
+        /// 取两者中心点判断。若只有一个屏幕，全保留。
+        /// </summary>
+        private List<AppWindowViewModel> FilterWindowsOnScreen(IEnumerable<AppWindowViewModel> windows)
+        {
+            if (_activeScreen == null)
+            {
+                return windows.ToList();
+            }
+
+            var bounds = _activeScreen.Bounds;
+
+            return windows.Where(w =>
+            {
+                var win = w.AppWindow;
+                ManagedWinapi.Windows.RECT rect;
+                if (win.WindowState == System.Windows.Forms.FormWindowState.Minimized)
+                {
+                    rect = win.Position;
+                }
+                else
+                {
+                    rect = win.Rectangle;
+                }
+
+                var center = new System.Drawing.Point(
+                    (rect.Left + rect.Right) / 2,
+                    (rect.Top + rect.Bottom) / 2);
+                return bounds.Contains(center);
+            }).ToList();
+        }
+
         private void FocusItemInList(InitialFocus focus, bool foregroundWindowMovedToBottom)
         {
             if (focus == InitialFocus.PreviousItem)
@@ -565,20 +645,25 @@ namespace Switcheroo
         }
 
         /// <summary>
-        /// Place the Switcheroo window in the center of the screen
+        /// Place the Switcheroo window in the center of the active screen (where the mouse is)
         /// </summary>
         private void CenterWindow()
         {
-            // Reset height every time to ensure that resolution changes take effect
-            Border.MaxHeight = SystemParameters.PrimaryScreenHeight;
+            var screen = _activeScreen ?? MultiMonitorHelper.GetMouseScreen();
+            var dipBounds = MultiMonitorHelper.ToDIPBounds(screen);
+
+            // Reset size every time to ensure that resolution changes take effect.
+            // MaxWidth 约束窗口不超屏, 同时让 WrapPanel 标签在受限宽度下换行。
+            Border.MaxHeight = dipBounds.Height;
+            Border.MaxWidth = dipBounds.Width;
 
             // Force a rendering before repositioning the window
             SizeToContent = SizeToContent.Manual;
             SizeToContent = SizeToContent.WidthAndHeight;
 
-            // Position the window in the center of the screen
-            Left = (SystemParameters.PrimaryScreenWidth/2) - (ActualWidth/2);
-            Top = (SystemParameters.PrimaryScreenHeight/2) - (ActualHeight/2);
+            // Position the window in the center of the active screen
+            Left = dipBounds.X + (dipBounds.Width - ActualWidth) / 2;
+            Top = dipBounds.Y + (dipBounds.Height - ActualHeight) / 2;
         }
 
         /// <summary>
@@ -597,6 +682,9 @@ namespace Switcheroo
 
         private void HideWindow()
         {
+            _hidePreviewTimer.Stop();
+            HideThumbnailPreview();
+
             if (_windowCloser != null)
             {
                 _windowCloser.Dispose();
@@ -758,7 +846,7 @@ namespace Switcheroo
                 {
                     _altTabAutoSwitch = true;
                     tb.IsEnabled = false;
-                    tb.Text = "Press Alt + Q to search";
+                    tb.Text = Localization.Get("SearchPlaceholder");
                 }
 
                 Opacity = 1;
@@ -817,17 +905,29 @@ namespace Switcheroo
                 return;
             }
 
-            var query = tb.Text;
+            RefreshFilter();
+        }
+
+        /// <summary>
+        /// 按当前搜索词与进程过滤刷新窗口列表。
+        /// </summary>
+        private void RefreshFilter()
+        {
+            // AutoSwitch 模式下 tb 被禁用且内容为占位提示，此时视为空查询
+            var query = tb.IsEnabled ? tb.Text : "";
 
             if (!query.Contains(".") && this.processFilterText != "")
             {
                 query = this.processFilterText + "." + query;
             }
 
+            var foreground = _foregroundWindow ?? SystemWindow.ForegroundWindow;
             var context = new WindowFilterContext<AppWindowViewModel>
             {
                 Windows = _unfilteredWindowList,
-                ForegroundWindowProcessTitle = new AppWindow(_foregroundWindow.HWnd).ProcessTitle
+                ForegroundWindowProcessTitle = foreground.HWnd == IntPtr.Zero
+                    ? ""
+                    : new AppWindow(foreground.HWnd).ProcessTitle
             };
 
             var filterResults = new WindowFilterer().Filter(context, query).ToList();
@@ -867,6 +967,70 @@ namespace Switcheroo
                 Switch();
             }
             e.Handled = true;
+        }
+
+        private void ListBoxItem_MouseEnter(object sender, System.Windows.Input.MouseEventArgs e)
+        {
+            var item = sender as ListBoxItem;
+            var viewModel = item?.DataContext as AppWindowViewModel;
+            if (viewModel == null) return;
+
+            _hidePreviewTimer.Stop();
+            ShowThumbnailPreview(viewModel);
+        }
+
+        private void ListBox_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
+        {
+            // 延迟隐藏，避免鼠标经过缩略图窗口时反复显示/隐藏
+            _hidePreviewTimer.Stop();
+            _hidePreviewTimer.Start();
+        }
+
+        private void ShowThumbnailPreview(AppWindowViewModel viewModel)
+        {
+            if (_thumbnailPreviewWindow == null)
+            {
+                _thumbnailPreviewWindow = new ThumbnailPreviewWindow();
+                _thumbnailPreviewWindow.Closed += (s, args) => _thumbnailPreviewWindow = null;
+            }
+
+            var screen = _activeScreen ?? MultiMonitorHelper.GetMouseScreen();
+            var dipBounds = MultiMonitorHelper.ToDIPBounds(screen);
+
+            // 最大预览尺寸：屏幕内留出边距
+            var maxW = dipBounds.Width - 80;
+            var maxH = dipBounds.Height - 80;
+
+            // 先按源窗口比例调整预览窗口尺寸并注册缩略图
+            _thumbnailPreviewWindow.ShowThumbnail(viewModel.HWnd, maxW, maxH);
+
+            // 再以调整后的实际尺寸定位到鼠标旁边
+            var mouseDIP = MultiMonitorHelper.ToDIP(new System.Drawing.PointF(
+                System.Windows.Forms.Cursor.Position.X,
+                System.Windows.Forms.Cursor.Position.Y));
+            double left = mouseDIP.X + 20;
+            double top = mouseDIP.Y + 20;
+            if (left + _thumbnailPreviewWindow.Width > dipBounds.Right)
+            {
+                left = mouseDIP.X - _thumbnailPreviewWindow.Width - 20;
+            }
+            if (top + _thumbnailPreviewWindow.Height > dipBounds.Bottom)
+            {
+                top = mouseDIP.Y - _thumbnailPreviewWindow.Height - 20;
+            }
+            // 钳制到屏幕内（鼠标贴近左/上边缘时翻转后仍可能越界）
+            left = Math.Max(dipBounds.X, Math.Min(left, dipBounds.Right - _thumbnailPreviewWindow.Width));
+            top = Math.Max(dipBounds.Y, Math.Min(top, dipBounds.Bottom - _thumbnailPreviewWindow.Height));
+            _thumbnailPreviewWindow.Left = left;
+            _thumbnailPreviewWindow.Top = top;
+        }
+
+        private void HideThumbnailPreview()
+        {
+            if (_thumbnailPreviewWindow != null)
+            {
+                _thumbnailPreviewWindow.HideThumbnail();
+            }
         }
         
         private void MenuItem_Click_toFront(object sender, RoutedEventArgs e)
@@ -1073,16 +1237,9 @@ namespace Switcheroo
         void Toggle_sortWinList()
         {
             _sortWinList = !_sortWinList;
-            Toggle_MenuItem("Alpha&betical Sort");
-        }
-
-        void Toggle_MenuItem(String text)
-        {
-            foreach (MenuItem mi in _notifyIcon.ContextMenu.MenuItems) {
-                if((String)mi.Text == text) 
-                {
-                    mi.Checked = !mi.Checked;
-                }
+            if (_sortAZMenuItem != null)
+            {
+                _sortAZMenuItem.Checked = _sortWinList;
             }
         }
         

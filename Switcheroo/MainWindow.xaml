@@ -3,9 +3,9 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:Switcheroo"
         xmlns:system="clr-namespace:System;assembly=mscorlib"
-        Closing="OnClose" ResizeMode="NoResize" ShowInTaskbar="False" WindowStyle="None" AllowsTransparency="True"
+        Closing="OnClose" ResizeMode="NoResize" ShowInTaskbar="False" WindowStyle="None"
         SizeToContent="WidthAndHeight"
-        Title="" MinWidth="542" Deactivated="MainWindow_OnLostFocus" Loaded="MainWindow_OnLoaded"
+        Title="" MinWidth="800" Deactivated="MainWindow_OnLostFocus" Loaded="MainWindow_OnLoaded"
         BorderThickness="1">
 
     <Window.CommandBindings>
@@ -49,46 +49,28 @@
         <DockPanel LastChildFill="True">
             <!--帮助信息-->
             <DockPanel Margin="4,0,4,0" Name="HelpPanel" Background="Transparent" Height="0" DockPanel.Dock="Top">
-                <TextBlock FontSize="10" DockPanel.Dock="Left">
-                    type to search
-                </TextBlock>
+                <TextBlock FontSize="12" DockPanel.Dock="Left" Text="{DynamicResource HelpTypeToSearch}" />
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" HorizontalAlignment="Right">
-                    <TextBlock FontSize="10" Margin="0,0,8,0">
-                        <TextBlock.ToolTip>
-                            <TextBlock>Press <Bold>tab</Bold> or <Bold>↑↓</Bold> to navigate in the list</TextBlock>
-                        </TextBlock.ToolTip>
-                        <Bold>tab</Bold> or <Bold>↑↓</Bold> to navigate
-                    </TextBlock>
-                    <TextBlock FontSize="10" Margin="0,0,8,0">
-                        <TextBlock.ToolTip>
-                            <TextBlock>Press <Bold>enter</Bold> to open the highlighted window</TextBlock>
-                        </TextBlock.ToolTip>
-                        <Bold>enter</Bold> to open a window
-                    </TextBlock>
-                    <TextBlock FontSize="10" Margin="0,0,8,0">
-                        <TextBlock.ToolTip>
-                            <TextBlock>Press <Bold>ctrl+w</Bold> to close the highlighted window</TextBlock>
-                        </TextBlock.ToolTip>
-                        <Bold>ctrl+w</Bold> to close a window
-                    </TextBlock>
-                    <TextBlock FontSize="10">
-                        <TextBlock.ToolTip>
-                            <TextBlock>Press <Bold>esc</Bold> to dismiss the Switcheroo overlay</TextBlock>
-                        </TextBlock.ToolTip>
-                        <Bold>esc</Bold> to dismiss switcheroo
-                    </TextBlock>
+                    <TextBlock FontSize="12" Margin="0,0,8,0" Text="{DynamicResource HelpNavigate}"
+                               ToolTip="{DynamicResource HelpNavigateTip}" />
+                    <TextBlock FontSize="12" Margin="0,0,8,0" Text="{DynamicResource HelpEnter}"
+                               ToolTip="{DynamicResource HelpEnterTip}" />
+                    <TextBlock FontSize="12" Margin="0,0,8,0" Text="{DynamicResource HelpClose}"
+                               ToolTip="{DynamicResource HelpCloseTip}" />
+                    <TextBlock FontSize="12" Text="{DynamicResource HelpDismiss}"
+                               ToolTip="{DynamicResource HelpDismissTip}" />
                 </StackPanel>
             </DockPanel>
             <!--程序分组信息-->
-            <DockPanel Margin="4,0,4,0" Name="ProcessPanel" Background="Transparent" Height="20" DockPanel.Dock="Top">
-                <TextBlock FontSize="17" DockPanel.Dock="Left">
+            <DockPanel Margin="4,0,4,0" Name="ProcessPanel" Background="Transparent" DockPanel.Dock="Top">
+                <TextBlock FontSize="20" DockPanel.Dock="Left">
                 </TextBlock>
-                <StackPanel Orientation="Horizontal" Name="spProcessFilter" DockPanel.Dock="Left" HorizontalAlignment="Left">
-                </StackPanel>
+                <WrapPanel Name="spProcessFilter" DockPanel.Dock="Left" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="0,2,0,2">
+                </WrapPanel>
             </DockPanel>
             <!--搜索框-->
            <Grid Name="SearchGrid" DockPanel.Dock="Top">
-                <TextBox Name="tb" Padding="5" VerticalAlignment="Top" TextChanged="TextChanged" FontSize="15"
+                <TextBox Name="tb" Padding="6,5" VerticalAlignment="Top" TextChanged="TextChanged" FontSize="20"
                          VerticalContentAlignment="Center" BorderBrush="{x:Null}">
                     <TextBox.InputBindings>
                         <!-- For now, leave these here.  Would it be better to route them upward? -->
@@ -134,8 +116,8 @@
                 </TextBlock>
             </Grid>
             <!--窗口列表-->
-            <ListBox Name="lb" SelectionMode="Extended" ItemsSource="{Binding}" MinWidth="522" BorderThickness="0"
-                     Margin="-1,3,-1,0" Padding="0" DockPanel.Dock="Bottom">
+            <ListBox Name="lb" SelectionMode="Extended" ItemsSource="{Binding}" MinWidth="780" BorderThickness="0"
+                     Margin="-1,3,-1,0" Padding="0" FontSize="15" MouseLeave="ListBox_MouseLeave" DockPanel.Dock="Bottom">
                 <ListBox.ItemTemplate>
                     <DataTemplate>
                         <StackPanel Orientation="Horizontal">
@@ -187,11 +169,11 @@
                                     <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="22" />
-                                    <ColumnDefinition Width="400" />
-                                    <ColumnDefinition Width="106" />
+                                    <ColumnDefinition Width="30" />
+                                    <ColumnDefinition Width="560" />
+                                    <ColumnDefinition Width="160" />
                                 </Grid.ColumnDefinitions>
-                                <Image Height="19" Grid.Row="0" Grid.Column="0" Margin="3,0"
+                                <Image Height="26" Grid.Row="0" Grid.Column="0" Margin="3,0"
                                        Opacity="{Binding IsBeingClosed, Converter={StaticResource ImageOpacityConverter}, Mode=OneTime}">
                                     <Image.Source>
                                         <PriorityBinding>
@@ -220,16 +202,17 @@
                 </ListBox.ItemTemplate>
                 <ListBox.ItemContainerStyle>
                     <Style TargetType="{x:Type ListBoxItem}" BasedOn="{StaticResource {x:Type ListBoxItem}}">
-                        <Setter Property="Padding" Value="0,5" />
+                        <Setter Property="Padding" Value="0,8" />
                         <Setter Property="Opacity" Value="1" />
                         <EventSetter Event="MouseLeftButtonUp" Handler="ListBoxItem_MouseLBClick" />
+                        <EventSetter Event="MouseEnter" Handler="ListBoxItem_MouseEnter" />
                     </Style>
                 </ListBox.ItemContainerStyle>
               <ListBox.ContextMenu>
                 <ContextMenu>
-                  <MenuItem Header="Close" Click="MenuItem_Click_toClose"/>
-                  <MenuItem Header="Bring to Front" Click="MenuItem_Click_toFront"/>
-                  <MenuItem Header="Run Another Instance" Click="MenuItem_Duplicate"/>
+                  <MenuItem Header="{DynamicResource ContextClose}" Click="MenuItem_Click_toClose"/>
+                  <MenuItem Header="{DynamicResource ContextToFront}" Click="MenuItem_Click_toFront"/>
+                  <MenuItem Header="{DynamicResource ContextDuplicate}" Click="MenuItem_Duplicate"/>
                 </ContextMenu>
               </ListBox.ContextMenu>
               <!-- Changes inactive selection color to be same as selected -->

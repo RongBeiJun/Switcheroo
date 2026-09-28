@@ -35,8 +35,8 @@
     <Setting Name="Theme" Type="System.String" Scope="User">
       <Value Profile="(Default)">Light</Value>
     </Setting>
-    <Setting Name="ProcessFilters" Type="System.String" Scope="User">
-      <Value Profile="(Default)">chrome,code,idea,explorer2</Value>
+    <Setting Name="Language" Type="System.String" Scope="User">
+      <Value Profile="(Default)">zh</Value>
     </Setting>
   </Settings>
 </SettingsFile>

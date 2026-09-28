@@ -157,13 +157,13 @@ namespace Switcheroo.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("chrome,code,idea,explorer2")]
-        public string ProcessFilters {
+        [global::System.Configuration.DefaultSettingValueAttribute("zh")]
+        public string Language {
             get {
-                return ((string)(this["ProcessFilters"]));
+                return ((string)(this["Language"]));
             }
             set {
-                this["ProcessFilters"] = value;
+                this["Language"] = value;
             }
         }
     }

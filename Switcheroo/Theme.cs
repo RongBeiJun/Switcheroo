@@ -49,7 +49,8 @@ namespace Switcheroo
 
         private static void SetUpTheme()
         {
-            mainWindow.Border.Background =
+            mainWindow.Background =
+                mainWindow.Border.Background =
                 mainWindow.tb.Background = mainWindow.lb.Background
                 = mainWindow.Border.BorderBrush = Background;
 
