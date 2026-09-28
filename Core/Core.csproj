@@ -9,7 +9,7 @@
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>Switcheroo.Core</RootNamespace>
     <AssemblyName>Switcheroo.Core</AssemblyName>
-    <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
@@ -30,6 +30,9 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="NPinyin">
+      <HintPath>..\packages\WuTong.NPinyin.1.0.0\lib\net35\NPinyin.dll</HintPath>
+    </Reference>
     <Reference Include="PresentationCore" />
     <Reference Include="System" />
     <Reference Include="System.Core" />
@@ -54,6 +57,7 @@
     <Compile Include="Matchers\IMatcher.cs" />
     <Compile Include="Matchers\IndividualCharactersMatcher.cs" />
     <Compile Include="Matchers\MatchResult.cs" />
+    <Compile Include="Matchers\PinyinMatcher.cs" />
     <Compile Include="Matchers\SignificantCharactersMatcher.cs" />
     <Compile Include="Matchers\StartsWithMatcher.cs" />
     <Compile Include="Matchers\StringPart.cs" />
