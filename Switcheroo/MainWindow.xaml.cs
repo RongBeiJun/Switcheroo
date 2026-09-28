@@ -661,7 +661,37 @@ namespace Switcheroo
             SizeToContent = SizeToContent.Manual;
             SizeToContent = SizeToContent.WidthAndHeight;
 
+            // 强制同步完成 measure/arrange，使 ActualWidth/ActualHeight 反映当前内容尺寸。
+            // 此前切换 SizeToContent 不触发布局，读到的仍是上一次布局的陈旧值，导致窗口偶尔不居中
+            //（尤其跨屏时内容高度差异大，偏移明显——副屏触发概率最高）。
+            UpdateLayout();
+
+            var hwnd = new WindowInteropHelper(this).Handle;
+            var targetDpi = (int)Math.Round(96 * MultiMonitorHelper.GetDpiScale(screen));
+            if (hwnd != IntPtr.Zero && MultiMonitorHelper.GetWindowDpi(hwnd) != targetDpi)
+            {
+                // 跨 DPI 监视器切换：此时窗口的 DPI 上下文还是旧屏的，WPF 会把稍后设置的
+                // Left/Top（DIP）按旧 DPI 换算成物理位置，而窗口尺寸却按新 DPI 渲染，
+                // 位置与尺寸缩放系数不一致 → 窗口偏移（150% 副屏实测偏差数百像素）。
+                // 先把窗口物理移入目标屏，触发 DPI 上下文刷新，再在布局完成后重新居中。
+                MultiMonitorHelper.MoveWindowPhysical(hwnd,
+                    screen.Bounds.X + screen.Bounds.Width / 2,
+                    screen.Bounds.Y + screen.Bounds.Height / 2);
+
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    UpdateLayout();
+                    SetCenteredPosition(dipBounds);
+                }), DispatcherPriority.Loaded);
+                return;
+            }
+
             // Position the window in the center of the active screen
+            SetCenteredPosition(dipBounds);
+        }
+
+        private void SetCenteredPosition(Rect dipBounds)
+        {
             Left = dipBounds.X + (dipBounds.Width - ActualWidth) / 2;
             Top = dipBounds.Y + (dipBounds.Height - ActualHeight) / 2;
         }
@@ -994,7 +1024,9 @@ namespace Switcheroo
                 _thumbnailPreviewWindow.Closed += (s, args) => _thumbnailPreviewWindow = null;
             }
 
-            var screen = _activeScreen ?? MultiMonitorHelper.GetMouseScreen();
+            // 缩略图跟随鼠标所在屏定位（悬停时鼠标必然在当前屏），
+            // 不能沿用 Alt+Tab 时的 _activeScreen，否则跨屏后位置/钳制错误。
+            var screen = MultiMonitorHelper.GetMouseScreen();
             var dipBounds = MultiMonitorHelper.ToDIPBounds(screen);
 
             // 最大预览尺寸：屏幕内留出边距
@@ -1004,7 +1036,28 @@ namespace Switcheroo
             // 先按源窗口比例调整预览窗口尺寸并注册缩略图
             _thumbnailPreviewWindow.ShowThumbnail(viewModel.HWnd, maxW, maxH);
 
+            var hwnd = new WindowInteropHelper(_thumbnailPreviewWindow).Handle;
+            var targetDpi = (int)Math.Round(96 * MultiMonitorHelper.GetDpiScale(screen));
+            if (hwnd != IntPtr.Zero && MultiMonitorHelper.GetWindowDpi(hwnd) != targetDpi)
+            {
+                // 预览窗口是复用的单例，上次可能在别的 DPI 屏显示，其 DPI 上下文滞后。
+                // 若不刷新，DIP 位置/尺寸会被按旧 DPI 解释 → 缩略图被错位放大。
+                // 先物理移入目标屏触发 DPI 上下文刷新，再于布局后定位。
+                MultiMonitorHelper.MoveWindowPhysical(hwnd,
+                    screen.Bounds.X + screen.Bounds.Width / 2,
+                    screen.Bounds.Y + screen.Bounds.Height / 2);
+
+                Dispatcher.BeginInvoke(new Action(() => PositionThumbnailPreview(dipBounds)),
+                    DispatcherPriority.Loaded);
+                return;
+            }
+
             // 再以调整后的实际尺寸定位到鼠标旁边
+            PositionThumbnailPreview(dipBounds);
+        }
+
+        private void PositionThumbnailPreview(Rect dipBounds)
+        {
             var mouseDIP = MultiMonitorHelper.ToDIP(new System.Drawing.PointF(
                 System.Windows.Forms.Cursor.Position.X,
                 System.Windows.Forms.Cursor.Position.Y));

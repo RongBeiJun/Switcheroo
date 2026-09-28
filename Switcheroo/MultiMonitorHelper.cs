@@ -22,6 +22,16 @@ namespace Switcheroo
         [DllImport("shcore.dll")]
         private static extern int GetDpiForMonitor(IntPtr hMonitor, int dpiType, out uint dpiX, out uint dpiY);
 
+        [DllImport("user32.dll")]
+        private static extern int GetDpiForWindow(IntPtr hwnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+        private const uint SWP_NOSIZE = 0x0001;
+        private const uint SWP_NOZORDER = 0x0004;
+        private const uint SWP_NOACTIVATE = 0x0010;
+
         [StructLayout(LayoutKind.Sequential)]
         private struct POINT
         {
@@ -88,6 +98,30 @@ namespace Switcheroo
         {
             var scale = GetDpiScale(Screen.FromPoint(new System.Drawing.Point((int)physicalPoint.X, (int)physicalPoint.Y)));
             return new System.Windows.Point(physicalPoint.X / (float)scale, physicalPoint.Y / (float)scale);
+        }
+
+        /// <summary>
+        /// 窗口当前的 DPI（GetDpiForWindow）。跨监视器切换时，WPF 窗口会按新监视器 DPI
+        /// 重新解释 DIP 尺寸，但 Left/Top 可能在 DPI 上下文更新前被按旧 DPI 解释，
+        /// 导致位置与尺寸缩放系数不一致而偏移。
+        /// </summary>
+        public static int GetWindowDpi(IntPtr hwnd)
+        {
+            return hwnd == IntPtr.Zero ? 0 : GetDpiForWindow(hwnd);
+        }
+
+        /// <summary>
+        /// 将窗口物理移动到指定物理像素坐标（不改变尺寸/层级/激活状态）。
+        /// 用于先把窗口移入目标监视器，触发 WPF 的 DPI 上下文刷新。
+        /// </summary>
+        public static void MoveWindowPhysical(IntPtr hwnd, int physicalX, int physicalY)
+        {
+            if (hwnd == IntPtr.Zero)
+            {
+                return;
+            }
+            SetWindowPos(hwnd, IntPtr.Zero, physicalX, physicalY, 0, 0,
+                SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
         }
     }
 }
