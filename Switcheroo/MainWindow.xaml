@@ -73,8 +73,19 @@
             </DockPanel>
             <!--搜索框-->
            <Grid Name="SearchGrid" DockPanel.Dock="Top">
-                <Border CornerRadius="7" Background="#F1F3F6" BorderBrush="#DCE2E8" BorderThickness="1"
+                <Border CornerRadius="7" Background="#F1F3F6" BorderThickness="1"
                         Margin="4,4,4,2" Padding="0">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="BorderBrush" Value="#DCE2E8" />
+                            <Style.Triggers>
+                                <!-- 搜索框聚焦时边框高亮，提供清晰的输入反馈 -->
+                                <DataTrigger Binding="{Binding IsKeyboardFocused, ElementName=tb}" Value="True">
+                                    <Setter Property="BorderBrush" Value="#4A90D9" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
                     <TextBox Name="tb" Padding="10,6" VerticalAlignment="Top" TextChanged="TextChanged" FontSize="20"
                              VerticalContentAlignment="Center" BorderBrush="{x:Null}" Background="Transparent">
                         <TextBox.InputBindings>
@@ -123,7 +134,7 @@
             </Grid>
             <!--窗口列表-->
             <ListBox Name="lb" SelectionMode="Extended" ItemsSource="{Binding}" MinWidth="780" BorderThickness="0"
-                     Margin="-1,3,-1,0" Padding="0" FontSize="15" MouseLeave="ListBox_MouseLeave"
+                     Margin="-1,3,-1,0" Padding="0" FontSize="16" MouseLeave="ListBox_MouseLeave"
                      PreviewMouseWheel="ListBox_PreviewMouseWheel" DockPanel.Dock="Bottom">
                 <ListBox.ItemTemplate>
                     <DataTemplate>
