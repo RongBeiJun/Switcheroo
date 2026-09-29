@@ -1276,6 +1276,22 @@ namespace Switcheroo
                 ScrollSelectedItemIntoView();
             }
         }
+
+        /// <summary>
+        /// 鼠标滚轮上下切换选中项（与 Tab/方向键行为一致），而非默认的仅滚动视口。
+        /// </summary>
+        private void ListBox_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            if (e.Delta > 0)
+            {
+                PreviousItem();
+            }
+            else if (e.Delta < 0)
+            {
+                NextItem();
+            }
+            e.Handled = true;
+        }
         
         private void ScrollListPageUp(object sender, ExecutedRoutedEventArgs e)
         {
@@ -1341,7 +1357,64 @@ namespace Switcheroo
         private void MainWindow_OnLoaded(object sender, RoutedEventArgs e)
         {
             DisableSystemMenu();
+            EnableRoundedCorners();
+            TryApplyUiFont();
         }
+
+        /// <summary>
+        /// 尝试使用构建目录 fonts/ 下的自定义字体（如霞鹜文楷）。
+        /// 仅按相对路径查找（不硬编码本机路径），缺失时静默回退系统默认字体，不影响可读性。
+        /// </summary>
+        private void TryApplyUiFont()
+        {
+            try
+            {
+                var fontPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "fonts", "LXGWWenKai-Regular.ttf");
+                if (!System.IO.File.Exists(fontPath))
+                {
+                    return;
+                }
+
+                // 用完整 "file:///...#family" 字符串形式：WPF 才按文件加载；
+                // 传 Uri+family 会退化为纯 family 名去系统搜索字体（系统未安装 → 回退默认）。
+                var family = new FontFamily("file:///" + fontPath.Replace('\\', '/') + "#LXGW WenKai");
+                FontFamily = family;
+                tb.FontFamily = family;
+                lb.FontFamily = family;
+            }
+            catch
+            {
+                // 字体损坏或加载失败时回退系统字体
+            }
+        }
+
+        /// <summary>
+        /// Windows 11 下给无边框窗口启用 DWM 圆角，视觉更现代。
+        /// 不依赖 AllowsTransparency（避免多 DPI 下分层窗口模糊），Windows 10 及更早直接忽略。
+        /// </summary>
+        private void EnableRoundedCorners()
+        {
+            try
+            {
+                var handle = new WindowInteropHelper(this).Handle;
+                if (handle == IntPtr.Zero)
+                {
+                    return;
+                }
+                // DWMWA_WINDOW_CORNER_PREFERENCE = 33, DWMWCP_ROUND = 2
+                const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+                const int DWMWCP_ROUND = 2;
+                int preference = DWMWCP_ROUND;
+                DwmSetWindowAttribute(handle, DWMWA_WINDOW_CORNER_PREFERENCE, ref preference, sizeof(int));
+            }
+            catch
+            {
+                // Windows 10 或更早（build < 22000）不支持该属性，忽略即可
+            }
+        }
+
+        [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int attributeValue, int attributeSize);
 
         private void DisableSystemMenu()
         {
