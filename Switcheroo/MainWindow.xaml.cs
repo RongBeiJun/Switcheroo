@@ -1391,6 +1391,70 @@ namespace Switcheroo
             DisableSystemMenu();
             EnableRoundedCorners();
             TryApplyUiFont();
+            HookUpSelectionHighlight();
+        }
+
+        /// <summary>
+        /// 选中高亮滑块：选中项变化时在列表项间平滑上下滑动（替代背景渐隐渐显）。
+        /// </summary>
+        private void HookUpSelectionHighlight()
+        {
+            lb.SelectionChanged += (s, e) => UpdateSelectionHighlight(true);
+            lb.SizeChanged += (s, e) => UpdateSelectionHighlight(false);
+            var scrollViewer = lb.Template?.FindName("ScrollViewer", lb) as System.Windows.Controls.ScrollViewer;
+            if (scrollViewer != null)
+            {
+                scrollViewer.ScrollChanged += (s, e) => UpdateSelectionHighlight(false);
+            }
+            UpdateSelectionHighlight(false);
+        }
+
+        private void UpdateSelectionHighlight(bool animate)
+        {
+            if (lb == null || lb.Template == null)
+            {
+                return;
+            }
+
+            var highlight = lb.Template.FindName("SelectionHighlight", lb) as FrameworkElement;
+            var translate = lb.Template.FindName("HighlightTranslate", lb) as TranslateTransform;
+            if (highlight == null || translate == null)
+            {
+                return;
+            }
+
+            if (lb.SelectedIndex < 0 || lb.SelectedIndex >= lb.Items.Count)
+            {
+                highlight.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            var container = lb.ItemContainerGenerator.ContainerFromIndex(lb.SelectedIndex) as ListBoxItem;
+            if (container == null)
+            {
+                // 容器未生成（虚拟化/未布局）
+                highlight.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            // item 相对 ListBox 视口的坐标（含滚动偏移）
+            var pos = container.TransformToAncestor(lb).Transform(new Point(0, 0));
+            double targetY = pos.Y;
+
+            highlight.Visibility = Visibility.Visible;
+            highlight.Height = container.ActualHeight;
+            if (animate)
+            {
+                // 吸附质感：快速冲过目标再吸回（轻微过冲），而非匀速平滑
+                var anim = new DoubleAnimation(translate.Y, targetY, TimeSpan.FromMilliseconds(180));
+                anim.EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.35 };
+                translate.BeginAnimation(TranslateTransform.YProperty, anim);
+            }
+            else
+            {
+                translate.BeginAnimation(TranslateTransform.YProperty, null);
+                translate.Y = targetY;
+            }
         }
 
         /// <summary>
