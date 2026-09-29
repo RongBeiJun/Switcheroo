@@ -13,6 +13,7 @@
     <system:String x:Key="HelpDismiss">esc 退出 switcheroo</system:String>
     <system:String x:Key="HelpDismissTip">按 esc 关闭 Switcheroo 覆盖层</system:String>
     <system:String x:Key="SearchPlaceholder">按 Alt + Q 搜索</system:String>
+    <system:String x:Key="NoWindowFound">没有匹配的窗口</system:String>
 
     <!-- 列表右键菜单 -->
     <system:String x:Key="ContextClose">关闭</system:String>

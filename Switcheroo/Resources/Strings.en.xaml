@@ -13,6 +13,7 @@
     <system:String x:Key="HelpDismiss">esc to dismiss switcheroo</system:String>
     <system:String x:Key="HelpDismissTip">Press esc to dismiss the Switcheroo overlay</system:String>
     <system:String x:Key="SearchPlaceholder">Press Alt + Q to search</system:String>
+    <system:String x:Key="NoWindowFound">No matching window</system:String>
 
     <!-- 列表右键菜单 -->
     <system:String x:Key="ContextClose">Close</system:String>

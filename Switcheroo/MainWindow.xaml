@@ -43,6 +43,8 @@
     <Window.Resources>
         <local:WindowHandleToIconConverter x:Key="WindowHandleToIconConverter" />
         <local:WindowHandleToCachedIconConverter x:Key="WindowHandleToCachedIconConverter" />
+        <!-- 列表空态：有项时隐藏、无项时显示 -->
+        <local:BoolToVisibilityConverter x:Key="InverseHasItemsToVisibility" IfTrue="Collapsed" IfFalse="Visible" />
         <!-- 列表项状态色（供 VSM ColorAnimation 过渡，浅/深色主题均可读） -->
         <Color x:Key="ItemSelectedColor">#552680E0</Color>
         <Color x:Key="ItemHoverColor">#14000000</Color>
@@ -134,9 +136,10 @@
                 </TextBlock>
             </Grid>
             <!--窗口列表-->
+            <Grid DockPanel.Dock="Bottom" Margin="-1,3,-1,0">
             <ListBox Name="lb" SelectionMode="Extended" ItemsSource="{Binding}" MinWidth="780" BorderThickness="0"
-                     Margin="-1,3,-1,0" Padding="0" FontSize="16" MouseLeave="ListBox_MouseLeave"
-                     PreviewMouseWheel="ListBox_PreviewMouseWheel" DockPanel.Dock="Bottom"
+                     Margin="0" Padding="0" FontSize="16" MouseLeave="ListBox_MouseLeave"
+                     PreviewMouseWheel="ListBox_PreviewMouseWheel"
                      ScrollViewer.CanContentScroll="True">
                 <ListBox.Template>
                     <ControlTemplate TargetType="{x:Type ListBox}">
@@ -288,6 +291,11 @@
                                      Color="{x:Static SystemColors.HighlightColor}" Opacity=".4" />
                 </ListBox.Resources>
             </ListBox>
+            <!-- 空列表占位提示（有项时隐藏） -->
+            <TextBlock Text="{DynamicResource NoWindowFound}" FontSize="15" Foreground="#8A8F98"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,10"
+                       Visibility="{Binding HasItems, ElementName=lb, Converter={StaticResource InverseHasItemsToVisibility}}" />
+            </Grid>
         </DockPanel>
     </Border>
 </Window>

@@ -37,4 +37,8 @@ namespace Switcheroo
     public class BoolToColorConverter : BoolConverter<Color>
     {
     }
+
+    public class BoolToVisibilityConverter : BoolConverter<System.Windows.Visibility>
+    {
+    }
 }

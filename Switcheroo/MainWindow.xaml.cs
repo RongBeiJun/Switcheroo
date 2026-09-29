@@ -159,11 +159,21 @@ namespace Switcheroo
                     Text = (i + 1) + "." + process,
                     FontSize = 20,
                     Tag = process,
-                    Background = Brushes.Transparent
+                    Background = Brushes.Transparent,
+                    Cursor = System.Windows.Input.Cursors.Hand
                 };
                 tb.Foreground = processFilterText == process ? Brushes.Red : Brushes.Black;
                 tb.Margin = new Thickness(2, 0, 2, 0);
                 tb.MouseDown += TbProcessFilter_MouseDown;
+                // 悬停反馈：变为高亮蓝（选中态红色保持不变）
+                tb.MouseEnter += (s, e) =>
+                {
+                    if (processFilterText != (tb.Tag as string)) tb.Foreground = new SolidColorBrush(Color.FromRgb(0x4A, 0x90, 0xD9));
+                };
+                tb.MouseLeave += (s, e) =>
+                {
+                    tb.Foreground = processFilterText == (tb.Tag as string) ? Brushes.Red : Brushes.Black;
+                };
                 spProcessFilter.Children.Add(tb);
             }
         }
