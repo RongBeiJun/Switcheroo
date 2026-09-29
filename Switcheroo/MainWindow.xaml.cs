@@ -260,10 +260,24 @@ namespace Switcheroo
                 }
                 else if (args.SystemKey == Key.Q && Keyboard.Modifiers.HasFlag(ModifierKeys.Alt))
                 {
-                    _altTabAutoSwitch = false;
-                    tb.Text = "";
-                    tb.IsEnabled = true;
-                    tb.Focus();
+                    if (Settings.Default.AutoSwitch && tb.IsEnabled)
+                    {
+                        // 已处于搜索状态 → 再次 Alt+Q 退出搜索，恢复 AutoSwitch 浏览/切换态
+                        tb.Text = "";
+                        tb.IsEnabled = false;
+                        _altTabAutoSwitch = true;
+                        tb.Text = Localization.Get("SearchPlaceholder");
+                        RefreshFilter();
+                        lb.Focus();
+                    }
+                    else
+                    {
+                        // 进入搜索状态：暂停自动切换，聚焦搜索框
+                        _altTabAutoSwitch = false;
+                        tb.Text = "";
+                        tb.IsEnabled = true;
+                        tb.Focus();
+                    }
                 }
                 else if (args.SystemKey == Key.S && Keyboard.Modifiers.HasFlag(ModifierKeys.Alt))
                 {
@@ -1053,9 +1067,9 @@ namespace Switcheroo
             // AutoSwitch 模式下 tb 被禁用且内容为占位提示，此时视为空查询
             var query = tb.IsEnabled ? tb.Text : "";
 
-            // 无搜索词（且未拼入进程过滤）时短路：直接用全量列表，跳过匹配与高亮重算。
-            // LoadData 已对全量窗口生成格式化标题，空查询下无需再走 WindowFilterer。
-            if (string.IsNullOrWhiteSpace(query))
+            // 无搜索词且无进程过滤时短路：直接用全量列表，跳过匹配与高亮重算。
+            // LoadData 已对全量窗口生成格式化标题；但进程过滤（点击标签/Alt+数字）需走正常过滤。
+            if (string.IsNullOrWhiteSpace(query) && string.IsNullOrEmpty(this.processFilterText))
             {
                 _filteredWindowList = new ObservableCollection<AppWindowViewModel>(_unfilteredWindowList);
                 lb.DataContext = _filteredWindowList;

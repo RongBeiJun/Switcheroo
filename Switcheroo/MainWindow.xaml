@@ -76,22 +76,57 @@
             </DockPanel>
             <!--搜索框-->
            <Grid Name="SearchGrid" DockPanel.Dock="Top">
-                <Border CornerRadius="7" Background="#F1F3F6" BorderThickness="1"
-                        Margin="4,4,4,2" Padding="0">
-                    <Border.Style>
-                        <Style TargetType="Border">
-                            <Setter Property="BorderBrush" Value="#DCE2E8" />
-                            <Style.Triggers>
-                                <!-- 搜索框聚焦时边框高亮，提供清晰的输入反馈 -->
-                                <DataTrigger Binding="{Binding IsKeyboardFocused, ElementName=tb}" Value="True">
-                                    <Setter Property="BorderBrush" Value="#4A90D9" />
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Border.Style>
-                    <TextBox Name="tb" Padding="10,6" VerticalAlignment="Top" TextChanged="TextChanged" FontSize="20"
-                             VerticalContentAlignment="Center" BorderBrush="{x:Null}" Background="Transparent">
-                        <TextBox.InputBindings>
+                <TextBox Name="tb" Margin="4,4,4,2" FontSize="20" TextChanged="TextChanged"
+                         TextAlignment="Left" CaretBrush="#4A90D9" FocusVisualStyle="{x:Null}">
+                    <TextBox.Template>
+                        <ControlTemplate TargetType="TextBox">
+                            <Grid>
+                                <!-- 圆角填充背景 -->
+                                <Border x:Name="Bg" CornerRadius="7" Background="#F1F3F6" />
+                                <!-- 圆角描边（Rectangle 描边是真圆角，模板内动画可靠解析） -->
+                                <Rectangle x:Name="Frame" RadiusX="7" RadiusY="7" Stroke="#DCE2E8"
+                                           StrokeThickness="1.5" Fill="{x:Null}" IsHitTestVisible="False" />
+                                <ScrollViewer x:Name="PART_ContentHost" Focusable="False"
+                                              Margin="10,5,10,5" VerticalAlignment="Center" />
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <!-- 聚焦动效：描边加粗变蓝 + 背景淡蓝（属性系统驱动，模板内 TargetName 可靠） -->
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Trigger.EnterActions>
+                                        <BeginStoryboard>
+                                            <Storyboard>
+                                                <ColorAnimation Storyboard.TargetName="Frame"
+                                                    Storyboard.TargetProperty="(Rectangle.Stroke).(SolidColorBrush.Color)"
+                                                    To="#4A90D9" Duration="0:0:0.15" />
+                                                <DoubleAnimation Storyboard.TargetName="Frame"
+                                                    Storyboard.TargetProperty="StrokeThickness"
+                                                    To="2.5" Duration="0:0:0.15" />
+                                                <ColorAnimation Storyboard.TargetName="Bg"
+                                                    Storyboard.TargetProperty="(Border.Background).(SolidColorBrush.Color)"
+                                                    To="#E8F2FC" Duration="0:0:0.15" />
+                                            </Storyboard>
+                                        </BeginStoryboard>
+                                    </Trigger.EnterActions>
+                                    <Trigger.ExitActions>
+                                        <BeginStoryboard>
+                                            <Storyboard>
+                                                <ColorAnimation Storyboard.TargetName="Frame"
+                                                    Storyboard.TargetProperty="(Rectangle.Stroke).(SolidColorBrush.Color)"
+                                                    To="#DCE2E8" Duration="0:0:0.20" />
+                                                <DoubleAnimation Storyboard.TargetName="Frame"
+                                                    Storyboard.TargetProperty="StrokeThickness"
+                                                    To="1.5" Duration="0:0:0.20" />
+                                                <ColorAnimation Storyboard.TargetName="Bg"
+                                                    Storyboard.TargetProperty="(Border.Background).(SolidColorBrush.Color)"
+                                                    To="#F1F3F6" Duration="0:0:0.20" />
+                                            </Storyboard>
+                                        </BeginStoryboard>
+                                    </Trigger.ExitActions>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </TextBox.Template>
+                    <TextBox.InputBindings>
                         <!-- For now, leave these here.  Would it be better to route them upward? -->
                         <KeyBinding Command="local:MainWindow.ScrollListUpCommand" Key="Up" />
                         <KeyBinding Command="local:MainWindow.ScrollListDownCommand" Key="Down" />
@@ -103,7 +138,6 @@
                         <KeyBinding Command="local:MainWindow.ScrollListEndCommand" Key="End" />
                     </TextBox.InputBindings>
                 </TextBox>
-                </Border>
                <!--帮助按钮-->
                 <TextBlock Margin="0,0,10,0" Width="15" HorizontalAlignment="Right" TextAlignment="Center"
                            VerticalAlignment="Center"
@@ -139,7 +173,7 @@
             <Grid DockPanel.Dock="Bottom" Margin="-1,3,-1,0">
             <ListBox Name="lb" SelectionMode="Extended" ItemsSource="{Binding}" MinWidth="780" BorderThickness="0"
                      Margin="0" Padding="0" FontSize="16" MouseLeave="ListBox_MouseLeave"
-                     PreviewMouseWheel="ListBox_PreviewMouseWheel"
+                     PreviewMouseWheel="ListBox_PreviewMouseWheel" FocusVisualStyle="{x:Null}"
                      ScrollViewer.CanContentScroll="True">
                 <ListBox.Template>
                     <ControlTemplate TargetType="{x:Type ListBox}">
