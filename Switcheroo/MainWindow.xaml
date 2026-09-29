@@ -226,46 +226,47 @@
                             <Setter.Value>
                                 <ControlTemplate TargetType="{x:Type ListBoxItem}">
                                     <Grid Margin="3,1">
+                                        <!-- VisualStateGroups 必须位于模板根元素上，ListBoxItem 的状态驱动才能找到 -->
+                                        <VisualStateManager.VisualStateGroups>
+                                            <!-- hover/选中背景平滑过渡（背景滑动切换） -->
+                                            <VisualStateGroup Name="CommonStates">
+                                                <VisualState Name="Normal" />
+                                                <VisualState Name="MouseOver">
+                                                    <Storyboard>
+                                                        <ColorAnimation Storyboard.TargetName="ItemBorder"
+                                                            Storyboard.TargetProperty="Background.Color"
+                                                            To="{StaticResource ItemHoverColor}"
+                                                            Duration="0:0:0.12" />
+                                                    </Storyboard>
+                                                </VisualState>
+                                            </VisualStateGroup>
+                                            <VisualStateGroup Name="SelectionStates">
+                                                <VisualState Name="Selected">
+                                                    <Storyboard>
+                                                        <ColorAnimation Storyboard.TargetName="ItemBorder"
+                                                            Storyboard.TargetProperty="Background.Color"
+                                                            To="{StaticResource ItemSelectedColor}"
+                                                            Duration="0:0:0.12" />
+                                                        <DoubleAnimation Storyboard.TargetName="AccentBar"
+                                                            Storyboard.TargetProperty="Opacity"
+                                                            To="1" Duration="0:0:0.15" />
+                                                    </Storyboard>
+                                                </VisualState>
+                                                <VisualState Name="Unselected">
+                                                    <Storyboard>
+                                                        <DoubleAnimation Storyboard.TargetName="AccentBar"
+                                                            Storyboard.TargetProperty="Opacity"
+                                                            To="0" Duration="0:0:0.15" />
+                                                    </Storyboard>
+                                                </VisualState>
+                                            </VisualStateGroup>
+                                        </VisualStateManager.VisualStateGroups>
                                         <!-- 选中强调条：平滑滑入左侧 -->
                                         <Border x:Name="AccentBar" Width="3" CornerRadius="2"
                                                 HorizontalAlignment="Left" Margin="0,8,0,8"
                                                 Background="{StaticResource AccentBrush}" Opacity="0" />
                                         <Border x:Name="ItemBorder" CornerRadius="7" Background="Transparent"
                                                 Padding="8,7">
-                                            <VisualStateManager.VisualStateGroups>
-                                                <!-- hover/选中背景平滑过渡（背景滑动切换） -->
-                                                <VisualStateGroup Name="CommonStates">
-                                                    <VisualState Name="Normal" />
-                                                    <VisualState Name="MouseOver">
-                                                        <Storyboard>
-                                                            <ColorAnimation Storyboard.TargetName="ItemBorder"
-                                                                Storyboard.TargetProperty="Background.Color"
-                                                                To="{StaticResource ItemHoverColor}"
-                                                                Duration="0:0:0.12" />
-                                                        </Storyboard>
-                                                    </VisualState>
-                                                </VisualStateGroup>
-                                                <VisualStateGroup Name="SelectionStates">
-                                                    <VisualState Name="Selected">
-                                                        <Storyboard>
-                                                            <ColorAnimation Storyboard.TargetName="ItemBorder"
-                                                                Storyboard.TargetProperty="Background.Color"
-                                                                To="{StaticResource ItemSelectedColor}"
-                                                                Duration="0:0:0.12" />
-                                                            <DoubleAnimation Storyboard.TargetName="AccentBar"
-                                                                Storyboard.TargetProperty="Opacity"
-                                                                To="1" Duration="0:0:0.15" />
-                                                        </Storyboard>
-                                                    </VisualState>
-                                                    <VisualState Name="Unselected">
-                                                        <Storyboard>
-                                                            <DoubleAnimation Storyboard.TargetName="AccentBar"
-                                                                Storyboard.TargetProperty="Opacity"
-                                                                To="0" Duration="0:0:0.15" />
-                                                        </Storyboard>
-                                                    </VisualState>
-                                                </VisualStateGroup>
-                                            </VisualStateManager.VisualStateGroups>
                                             <ContentPresenter />
                                         </Border>
                                     </Grid>
