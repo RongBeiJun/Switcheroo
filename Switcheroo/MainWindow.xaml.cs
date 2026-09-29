@@ -412,9 +412,10 @@ namespace Switcheroo
                 {
                    _foregroundWindow = SystemWindow.ForegroundWindow;
                     PrepareWindowAcrossDpi();
+                    // 隐藏状态下先加载数据与布局：内容就绪后再显示，避免窗口出现前的黑色背景帧
+                    LoadData(InitialFocus.NextItem);
                     Show();
                     Activate();
-                    LoadData(InitialFocus.NextItem);
                     tb.IsEnabled = true;
                     tb.Text = "";
                     Keyboard.Focus(tb);
@@ -861,10 +862,11 @@ namespace Switcheroo
 
                 _foregroundWindow = SystemWindow.ForegroundWindow;
                 PrepareWindowAcrossDpi();
+                // 隐藏状态下先加载数据与布局：内容就绪后再显示，避免窗口出现前的黑色背景帧
+                LoadData(InitialFocus.NextItem);
                 Show();
                 Activate();
                 Keyboard.Focus(tb);
-                LoadData(InitialFocus.NextItem);
                 Opacity = 1;
             }
             else
@@ -891,30 +893,22 @@ namespace Switcheroo
 
             e.Handled = true;
 
+            // 低层键盘钩子回调必须快速返回：若在回调内同步执行 Show/LoadData
+            //（枚举窗口、UI 更新等耗时操作），Windows 判定钩子超时会让系统切换器
+            // 接管 Alt+Tab —— 表现为窗口“闪一下”或完全不显示。
+            // 显示逻辑延迟到 Dispatcher 队列执行。
             if (Visibility != Visibility.Visible)
             {
-                tb.IsEnabled = true;
+                var shiftDown = e.ShiftDown;
 
-                ActivateAndFocusMainWindow();
-
-                Keyboard.Focus(tb);
-                if (e.ShiftDown)
-                {
-                    LoadData(InitialFocus.PreviousItem);
-                }
-                else
-                {
-                    LoadData(InitialFocus.NextItem);
-                }
-
-                if (Settings.Default.AutoSwitch && !e.CtrlDown)
+                // 立即武装 AutoSwitch：显示经 Dispatcher 延迟，快速松手（Alt up）也要能触发切换
+                if (Settings.Default.AutoSwitch && !Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
                 {
                     _altTabAutoSwitch = true;
-                    tb.IsEnabled = false;
-                    tb.Text = Localization.Get("SearchPlaceholder");
                 }
 
-                Opacity = 1;
+                Dispatcher.BeginInvoke(new Action(() => ShowMainWindowFromAltTab(shiftDown)),
+                    DispatcherPriority.Input);
             }
             else
             {
@@ -929,6 +923,50 @@ namespace Switcheroo
             }
         }
 
+        private void ShowMainWindowFromAltTab(bool shiftDown)
+        {
+            if (Visibility == Visibility.Visible)
+            {
+                // 队列延迟期间窗口可能已被显示（如快速连按），此时只切换选中项
+                if (shiftDown)
+                {
+                    PreviousItem();
+                }
+                else
+                {
+                    NextItem();
+                }
+                return;
+            }
+
+            tb.IsEnabled = true;
+
+            // 隐藏状态下先加载数据与布局：内容就绪后再显示窗口，
+            // 窗口第一帧即内容（消除出现前的黑色背景帧）。
+            PrepareWindowAcrossDpi();
+            if (shiftDown)
+            {
+                LoadData(InitialFocus.PreviousItem);
+            }
+            else
+            {
+                LoadData(InitialFocus.NextItem);
+            }
+
+            ActivateAndFocusMainWindow();
+
+            Keyboard.Focus(tb);
+
+            if (_altTabAutoSwitch)
+            {
+                tb.IsEnabled = false;
+                tb.Text = Localization.Get("SearchPlaceholder");
+            }
+
+            // 内容已加载并完成布局，直接显示
+            Opacity = 1;
+        }
+
         private void ActivateAndFocusMainWindow()
         {
             // What happens below looks a bit weird, but for Switcheroo to get focus when using the Alt+Tab hook,
@@ -936,9 +974,6 @@ namespace Switcheroo
             // will become the foreground window, but the previous window will retain focus, and receive keep getting
             // the keyboard input.
             // http://www.codeproject.com/Tips/76427/How-to-bring-window-to-top-with-SetForegroundWindo
-
-            var thisWindowHandle = new WindowInteropHelper(this).Handle;
-            var thisWindow = new AppWindow(thisWindowHandle);
 
             var altKey = new KeyboardKey(Keys.Alt);
             var altKeyPressed = false;
@@ -955,6 +990,11 @@ namespace Switcheroo
 
             // Bring the Switcheroo window to the foreground
             Show();
+
+            // Handle 必须在 Show() 之后获取：首次显示前 hwnd 尚不存在（Handle 为 0）。
+            var thisWindowHandle = new WindowInteropHelper(this).Handle;
+            var thisWindow = new AppWindow(thisWindowHandle);
+
             SystemWindow.ForegroundWindow = thisWindow;
             Activate();
 

@@ -60,3 +60,22 @@
 - app 内日志确认：跨 DPI 唤起时 Show/CenterWindow/DPI 上下文刷新全部正确执行、窗口按目标屏正确居中
 - 注入测试的跨屏窗口"不显示"经日志定位为**注入环境激活局限**（keybd_event 注入无法获得真实物理按键的 SetForegroundWindow 前台权限，窗口显示后立即 Deactivated；app 内部显示流程正确），**需用户实机确认**
 - 快速"按一下"即松手 Alt 时，AutoSwitch=True 会在松开时切换目标窗口（`_altTabAutoSwitch`）→ 表现为"闪一下"，此为 AutoSwitch 既有设计（按住浏览、松开切换），非本次修复范围
+
+## 追加：黑帧优化 + 触发延迟改善（次日）
+
+### 用户反馈
+
+- 两屏交替快速按 Alt+Tab 不再"闪退"（此前崩溃确认为调试日志代码 `OnLostFocus` 内访问 `SystemWindow.ForegroundWindow.ClassName` 在无有效前台时抛 `Win32Exception` 导致进程终止，已移除日志）
+- 快速按松开可正常切换（AutoSwitch 提前武装生效）
+- 但窗口出现前会有较长黑色背景帧；触发延迟偏高
+
+### 修复
+
+- **黑色背景帧**：`ShowMainWindowFromAltTab` 与 tray/热键路径改为**先 （隐藏状态下）执行 `LoadData` 完成数据填充与布局，再 `Show` + `Opacity=1`**——窗口第一帧即内容，无窗口背景色闪帧（曾尝试 ContentRendered 后显示，但 `Opacity=0` 时 WPF 不渲染导致事件不触发、走 200ms 兜底反而更糟，已回退）
+- **快速按切换**：`AltTabPressed` 钩子回调中同步设置 `_altTabAutoSwitch`（不再等延迟显示），快速松手也能触发切换
+- **钩子超时**：`AltTabPressed` 仅快速置 `Handled` 并延时到 Dispatcher，避免在低层键盘钩子回调内同步枚举窗口导致系统切换器接管
+
+### 用户实机确认
+
+- 快速按切换窗口功能正常
+- 黑帧消除，触发/显示正常（用户确认"修复的不错"）
