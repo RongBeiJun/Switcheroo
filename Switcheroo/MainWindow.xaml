@@ -43,9 +43,10 @@
     <Window.Resources>
         <local:WindowHandleToIconConverter x:Key="WindowHandleToIconConverter" />
         <local:WindowHandleToCachedIconConverter x:Key="WindowHandleToCachedIconConverter" />
-        <!-- 列表项选中/悬停高亮（半透明系统色，浅色/深色主题均可读） -->
-        <SolidColorBrush x:Key="ItemSelectedBrush" Color="{x:Static SystemColors.HighlightColor}" Opacity="0.32" />
-        <SolidColorBrush x:Key="ItemHoverBrush" Color="{x:Static SystemColors.ControlColor}" Opacity="0.55" />
+        <!-- 列表项状态色（供 VSM ColorAnimation 过渡，浅/深色主题均可读） -->
+        <Color x:Key="ItemSelectedColor">#552680E0</Color>
+        <Color x:Key="ItemHoverColor">#14000000</Color>
+        <SolidColorBrush x:Key="AccentBrush" Color="#4A90D9" />
     </Window.Resources>
 
     <Border Padding="3" Background="White" BorderBrush="DarkGray" BorderThickness="1" Name="Border">
@@ -224,21 +225,50 @@
                         <Setter Property="Template">
                             <Setter.Value>
                                 <ControlTemplate TargetType="{x:Type ListBoxItem}">
-                                    <Border x:Name="ItemBorder" CornerRadius="7" Background="Transparent"
-                                            Padding="6,7" Margin="3,1">
-                                        <ContentPresenter />
-                                    </Border>
-                                    <ControlTemplate.Triggers>
-                                        <!-- 顺序：悬停在前、选中在后 → 悬停中选中时蓝色选中优先，不被悬停灰覆盖 -->
-                                        <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter TargetName="ItemBorder" Property="Background"
-                                                    Value="{StaticResource ItemHoverBrush}" />
-                                        </Trigger>
-                                        <Trigger Property="IsSelected" Value="True">
-                                            <Setter TargetName="ItemBorder" Property="Background"
-                                                    Value="{StaticResource ItemSelectedBrush}" />
-                                        </Trigger>
-                                    </ControlTemplate.Triggers>
+                                    <Grid Margin="3,1">
+                                        <!-- 选中强调条：平滑滑入左侧 -->
+                                        <Border x:Name="AccentBar" Width="3" CornerRadius="2"
+                                                HorizontalAlignment="Left" Margin="0,8,0,8"
+                                                Background="{StaticResource AccentBrush}" Opacity="0" />
+                                        <Border x:Name="ItemBorder" CornerRadius="7" Background="Transparent"
+                                                Padding="8,7">
+                                            <VisualStateManager.VisualStateGroups>
+                                                <!-- hover/选中背景平滑过渡（背景滑动切换） -->
+                                                <VisualStateGroup Name="CommonStates">
+                                                    <VisualState Name="Normal" />
+                                                    <VisualState Name="MouseOver">
+                                                        <Storyboard>
+                                                            <ColorAnimation Storyboard.TargetName="ItemBorder"
+                                                                Storyboard.TargetProperty="Background.Color"
+                                                                To="{StaticResource ItemHoverColor}"
+                                                                Duration="0:0:0.12" />
+                                                        </Storyboard>
+                                                    </VisualState>
+                                                </VisualStateGroup>
+                                                <VisualStateGroup Name="SelectionStates">
+                                                    <VisualState Name="Selected">
+                                                        <Storyboard>
+                                                            <ColorAnimation Storyboard.TargetName="ItemBorder"
+                                                                Storyboard.TargetProperty="Background.Color"
+                                                                To="{StaticResource ItemSelectedColor}"
+                                                                Duration="0:0:0.12" />
+                                                            <DoubleAnimation Storyboard.TargetName="AccentBar"
+                                                                Storyboard.TargetProperty="Opacity"
+                                                                To="1" Duration="0:0:0.15" />
+                                                        </Storyboard>
+                                                    </VisualState>
+                                                    <VisualState Name="Unselected">
+                                                        <Storyboard>
+                                                            <DoubleAnimation Storyboard.TargetName="AccentBar"
+                                                                Storyboard.TargetProperty="Opacity"
+                                                                To="0" Duration="0:0:0.15" />
+                                                        </Storyboard>
+                                                    </VisualState>
+                                                </VisualStateGroup>
+                                            </VisualStateManager.VisualStateGroups>
+                                            <ContentPresenter />
+                                        </Border>
+                                    </Grid>
                                 </ControlTemplate>
                             </Setter.Value>
                         </Setter>
