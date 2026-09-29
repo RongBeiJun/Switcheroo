@@ -1168,31 +1168,43 @@ namespace Switcheroo
 
         private void PositionThumbnailPreview(Rect dipBounds)
         {
-            var mouseDIP = MultiMonitorHelper.ToDIP(new System.Drawing.PointF(
-                System.Windows.Forms.Cursor.Position.X,
-                System.Windows.Forms.Cursor.Position.Y));
-            double left = mouseDIP.X + 20;
-            double top = mouseDIP.Y + 20;
-            if (left + _thumbnailPreviewWindow.Width > dipBounds.Right)
+            // 固定在主窗口右侧、垂直居中于主窗口；右侧放不下则移到左侧（不再跟随鼠标）
+            const double gap = 24;
+            var previewW = _thumbnailPreviewWindow.Width;
+            var previewH = _thumbnailPreviewWindow.Height;
+
+            double left;
+            if (Left + ActualWidth + gap + previewW <= dipBounds.Right)
             {
-                left = mouseDIP.X - _thumbnailPreviewWindow.Width - 20;
+                left = Left + ActualWidth + gap;
             }
-            if (top + _thumbnailPreviewWindow.Height > dipBounds.Bottom)
+            else
             {
-                top = mouseDIP.Y - _thumbnailPreviewWindow.Height - 20;
+                left = Left - gap - previewW;
             }
-            // 钳制到屏幕内（鼠标贴近左/上边缘时翻转后仍可能越界）
-            left = Math.Max(dipBounds.X, Math.Min(left, dipBounds.Right - _thumbnailPreviewWindow.Width));
-            top = Math.Max(dipBounds.Y, Math.Min(top, dipBounds.Bottom - _thumbnailPreviewWindow.Height));
-            _thumbnailPreviewWindow.Left = left;
-            _thumbnailPreviewWindow.Top = top;
+
+            double top = Top + (ActualHeight - previewH) / 2.0;
+
+            // 钳制到屏幕内
+            left = Math.Max(dipBounds.X, Math.Min(left, dipBounds.Right - previewW));
+            top = Math.Max(dipBounds.Y, Math.Min(top, dipBounds.Bottom - previewH));
+
+            // 已可见（悬停切换项）→ 吸附平滑移动；首次显示 → 淡入
+            if (_thumbnailPreviewWindow.Visibility == Visibility.Visible)
+            {
+                _thumbnailPreviewWindow.MoveAnimated(left, top);
+            }
+            else
+            {
+                _thumbnailPreviewWindow.ShowAnimated(left, top);
+            }
         }
 
         private void HideThumbnailPreview()
         {
             if (_thumbnailPreviewWindow != null)
             {
-                _thumbnailPreviewWindow.HideThumbnail();
+                _thumbnailPreviewWindow.HideAnimated();
             }
         }
         

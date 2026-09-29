@@ -2,6 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using ManagedWinapi.Windows;
 
@@ -36,6 +37,10 @@ namespace Switcheroo
             Topmost = true;
             AllowsTransparency = false;
             Background = System.Windows.Media.Brushes.Black;
+            // 外轮廓：细边框 + 圆角，突出预览轮廓
+            BorderBrush = new System.Windows.Media.SolidColorBrush(
+                System.Windows.Media.Color.FromArgb(200, 74, 144, 217));
+            BorderThickness = new Thickness(2);
             SizeToContent = SizeToContent.Manual;
             Width = 480;
             Height = 300;
@@ -144,6 +149,65 @@ namespace Switcheroo
         public void HideThumbnail()
         {
             Hide();
+        }
+
+        /// <summary>
+        /// 淡入显示并定位（显示动画，与主窗口滑块质感一致）。
+        /// </summary>
+        public void ShowAnimated(double left, double top)
+        {
+            Left = left;
+            Top = top;
+            Show();
+            Opacity = 0;
+            var anim = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(120));
+            anim.EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut };
+            BeginAnimation(OpacityProperty, anim);
+        }
+
+        /// <summary>
+        /// 已可见时平滑吸附移动到新位置（悬停切换列表项时跟随）。
+        /// </summary>
+        public void MoveAnimated(double left, double top)
+        {
+            if (Visibility != Visibility.Visible)
+            {
+                Left = left;
+                Top = top;
+                return;
+            }
+
+            if (Math.Abs(Left - left) > 0.5)
+            {
+                var animX = new DoubleAnimation(Left, left, TimeSpan.FromMilliseconds(140));
+                animX.EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.25 };
+                BeginAnimation(LeftProperty, animX);
+            }
+            if (Math.Abs(Top - top) > 0.5)
+            {
+                var animY = new DoubleAnimation(Top, top, TimeSpan.FromMilliseconds(140));
+                animY.EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.25 };
+                BeginAnimation(TopProperty, animY);
+            }
+        }
+
+        /// <summary>
+        /// 淡出后隐藏（隐藏动画）。
+        /// </summary>
+        public void HideAnimated()
+        {
+            if (Visibility != Visibility.Visible)
+            {
+                return;
+            }
+            var anim = new DoubleAnimation(Opacity, 0, TimeSpan.FromMilliseconds(100));
+            anim.EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn };
+            anim.Completed += (s, e) =>
+            {
+                Opacity = 0;
+                Hide();
+            };
+            BeginAnimation(OpacityProperty, anim);
         }
 
         /// <summary>
