@@ -525,6 +525,25 @@ namespace Switcheroo
             }
         }
 
+        // 窗口快照缓存：Alt+Tab 唤起间复用枚举结果，降低唤起延迟。
+        // 短 TTL（2s）保证窗口增删仍能较及时反映。
+        private static List<AppWindow> _windowSnapshotCache;
+        private static DateTime _windowSnapshotTime;
+        private static readonly TimeSpan WindowSnapshotTtl = TimeSpan.FromSeconds(2);
+
+        private static List<AppWindow> GetWindowSnapshot()
+        {
+            var now = DateTime.Now;
+            if (_windowSnapshotCache != null && now - _windowSnapshotTime < WindowSnapshotTtl)
+            {
+                return _windowSnapshotCache;
+            }
+            var snapshot = new WindowFinder().GetWindows();
+            _windowSnapshotCache = snapshot;
+            _windowSnapshotTime = now;
+            return snapshot;
+        }
+
         /// <summary>
         /// Populates the window list with the current running windows.
         /// </summary>
@@ -532,7 +551,7 @@ namespace Switcheroo
         {
             _activeScreen = MultiMonitorHelper.GetMouseScreen();
 
-            var windows = new WindowFinder().GetWindows().Select(window => new AppWindowViewModel(window)).ToList();
+            var windows = GetWindowSnapshot().Select(window => new AppWindowViewModel(window)).ToList();
             _unfilteredWindowList = FilterWindowsOnScreen(windows);
 
             //qxx
@@ -1023,6 +1042,19 @@ namespace Switcheroo
         {
             // AutoSwitch 模式下 tb 被禁用且内容为占位提示，此时视为空查询
             var query = tb.IsEnabled ? tb.Text : "";
+
+            // 无搜索词（且未拼入进程过滤）时短路：直接用全量列表，跳过匹配与高亮重算。
+            // LoadData 已对全量窗口生成格式化标题，空查询下无需再走 WindowFilterer。
+            if (string.IsNullOrWhiteSpace(query))
+            {
+                _filteredWindowList = new ObservableCollection<AppWindowViewModel>(_unfilteredWindowList);
+                lb.DataContext = _filteredWindowList;
+                if (lb.Items.Count > 0)
+                {
+                    lb.SelectedItem = lb.Items[0];
+                }
+                return;
+            }
 
             if (!query.Contains(".") && this.processFilterText != "")
             {
