@@ -836,6 +836,12 @@ namespace Switcheroo
             }
 
             var targetHwnd = target.AppWindow.HWnd;
+            // 键盘（Tab）选中与鼠标指向不同时：鼠标悬停会优先预览，但松开 Alt 切换应使用真正选中的
+            // 目标缩略图动画——若缩略图当前显示的不是目标，先刷新为目标（鼠标点击切换时二者一致，幂等）。
+            if (_thumbnailPreviewWindow.SourceHwnd != targetHwnd)
+            {
+                ShowThumbnailPreview(target);
+            }
             // 目标最小化时无可见内容可放大（且缩略图通常也为空），走原有切换
             if (IsIconic(targetHwnd))
             {

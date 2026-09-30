@@ -32,16 +32,29 @@ namespace Switcheroo
         [DllImport("user32.dll")]
         private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
+        // 提升系统计时器分辨率（动画期间 1ms），让 DispatcherTimer 真正按毫秒级触发，动画更丝滑
+        [DllImport("winmm.dll")]
+        private static extern uint timeBeginPeriod(uint uPeriod);
+        [DllImport("winmm.dll")]
+        private static extern uint timeEndPeriod(uint uPeriod);
+
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
             int X, int Y, int cx, int cy, uint uFlags);
 
         private const uint SWP_NOSIZE = 0x0001;
+        private const uint SWP_NOREDRAW = 0x0008;
         private const uint SWP_NOZORDER = 0x0004;
         private const uint SWP_NOACTIVATE = 0x0010;
 
         private IntPtr _thumbnailId;
         private IntPtr _sourceHwnd;
+
+        /// <summary>当前缩略图显示的源窗口句柄（用于判断键盘选中目标与鼠标指向是否不同）。</summary>
+        public IntPtr SourceHwnd
+        {
+            get { return _sourceHwnd; }
+        }
 
         /// <summary>物理坐标移动动画（CompositionTarget.Rendering 逐帧 SetWindowPos）。</summary>
         private EventHandler _moveRenderHandler;
@@ -71,7 +84,14 @@ namespace Switcheroo
             SizeToContent = SizeToContent.Manual;
             Width = 480;
             Height = 300;
-            SizeChanged += (s, e) => UpdateThumbnailRect();
+            SizeChanged += (s, e) =>
+            {
+                // 切换动画中 SizeChanged 每帧触发：抑制自动更新（ScaleTick 里节流更新，减少 DWM IPC 提升帧率）
+                if (!_scaleAnimating)
+                {
+                    UpdateThumbnailRect();
+                }
+            };
         }
 
         protected override void OnSourceInitialized(EventArgs e)
@@ -311,8 +331,9 @@ namespace Switcheroo
         }
 
         /// <summary>缩放动画（物理坐标逐帧 SetWindowPos）状态。</summary>
-        private EventHandler _scaleTickHandler;
+        private System.Windows.Threading.DispatcherTimer _scaleTimer;
         private IntPtr _scaleHwnd;
+        private bool _scaleAnimating;
         private int _scaleFromX, _scaleFromY, _scaleFromW, _scaleFromH, _scaleToX, _scaleToY, _scaleToW, _scaleToH;
         private DateTime _scaleStarted;
         private int _scaleDurationMs;
@@ -349,8 +370,16 @@ namespace Switcheroo
             _scalePrepare = prepare;
             _scalePrepareFired = false;
             _scaleCompleted = completed;
-            _scaleTickHandler = (s, e) => ScaleTick();
-            CompositionTarget.Rendering += _scaleTickHandler;
+            _scaleAnimating = true;
+            // 提升系统计时分辨率后，用高频 DispatcherTimer 驱动：动画核心（SetWindowPos + DWM thumbnail
+            // dest）由 DWM 合成，不受主窗口 AllowsTransparency 软件渲染拖慢的 Rendering 循环限制 → 更丝滑
+            timeBeginPeriod(1);
+            _scaleTimer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(4)
+            };
+            _scaleTimer.Tick += (s, e) => ScaleTick();
+            _scaleTimer.Start();
         }
 
         private void ScaleTick()
@@ -366,7 +395,11 @@ namespace Switcheroo
             int y = _scaleFromY + (int)((_scaleToY - _scaleFromY) * e);
             int w = _scaleFromW + (int)((_scaleToW - _scaleFromW) * e);
             int h = _scaleFromH + (int)((_scaleToH - _scaleFromH) * e);
-            SetWindowPos(_scaleHwnd, IntPtr.Zero, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
+            SetWindowPos(_scaleHwnd, IntPtr.Zero, x, y, w, h,
+                SWP_NOREDRAW | SWP_NOZORDER | SWP_NOACTIVATE);
+
+            // 每帧更新 DWM 缩略图 dest（节流会导致窗口新区域无内容 → 黑帧）
+            UpdateThumbnailRect();
 
             // 完成前 ~20ms：提前把目标窗口切入（真实窗口与放大中的缩略图融合，过渡无缝）
             if (!_scalePrepareFired &&
@@ -388,13 +421,19 @@ namespace Switcheroo
 
         public void StopScaleAnimation()
         {
-            if (_scaleTickHandler != null)
+            if (_scaleTimer != null)
             {
-                CompositionTarget.Rendering -= _scaleTickHandler;
-                _scaleTickHandler = null;
+                _scaleTimer.Stop();
+                _scaleTimer = null;
             }
             _scalePrepare = null;
             _scaleCompleted = null;
+            if (_scaleAnimating)
+            {
+                _scaleAnimating = false;
+                timeEndPeriod(1); // 恢复系统计时分辨率
+                UpdateThumbnailRect(); // 结束恢复正确的 dest（动画中抑制了 SizeChanged 自动更新）
+            }
         }
 
         /// <summary>
