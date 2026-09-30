@@ -35,6 +35,7 @@ namespace Switcheroo
         [STAThread]
         private static void Main()
         {
+            ApplyRuntimePerformanceProfile();
             RunAsAdministratorIfConfigured();
 
             using (var mutex = new Mutex(false, mutex_id))
@@ -86,6 +87,24 @@ namespace Switcheroo
 
                 Process.Start(proc);
                 Environment.Exit(0);
+            }
+        }
+
+        /// <summary>
+        /// 运行时性能档位：提高线程池最小线程数（减少首次后台任务/钩子回调的线程创建延迟）。
+        /// 低风险开关，失败静默。
+        /// </summary>
+        private static void ApplyRuntimePerformanceProfile()
+        {
+            try
+            {
+                int wt, io;
+                ThreadPool.GetMinThreads(out wt, out io);
+                ThreadPool.SetMinThreads(Math.Max(4, Environment.ProcessorCount), Math.Max(io, 8));
+            }
+            catch
+            {
+                // 静默：性能配置失败不影响功能
             }
         }
 

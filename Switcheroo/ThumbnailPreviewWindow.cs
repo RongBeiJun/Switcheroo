@@ -1,4 +1,5 @@
 using System;
+using System.Runtime;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
@@ -334,6 +335,7 @@ namespace Switcheroo
         private System.Windows.Threading.DispatcherTimer _scaleTimer;
         private IntPtr _scaleHwnd;
         private bool _scaleAnimating;
+        private GCLatencyMode _gcLatencyBefore;
         private int _scaleFromX, _scaleFromY, _scaleFromW, _scaleFromH, _scaleToX, _scaleToY, _scaleToW, _scaleToH;
         private DateTime _scaleStarted;
         private int _scaleDurationMs;
@@ -371,6 +373,9 @@ namespace Switcheroo
             _scalePrepareFired = false;
             _scaleCompleted = completed;
             _scaleAnimating = true;
+            // 动画期间切低延迟 GC：避免 GC 停顿打断高频 SetWindowPos 帧（160ms 内短暂，结束恢复）
+            _gcLatencyBefore = GCSettings.LatencyMode;
+            GCSettings.LatencyMode = GCLatencyMode.LowLatency;
             // 提升系统计时分辨率后，用高频 DispatcherTimer 驱动：动画核心（SetWindowPos + DWM thumbnail
             // dest）由 DWM 合成，不受主窗口 AllowsTransparency 软件渲染拖慢的 Rendering 循环限制 → 更丝滑
             timeBeginPeriod(1);
@@ -432,6 +437,7 @@ namespace Switcheroo
             {
                 _scaleAnimating = false;
                 timeEndPeriod(1); // 恢复系统计时分辨率
+                GCSettings.LatencyMode = _gcLatencyBefore; // 恢复 GC 延迟模式
                 UpdateThumbnailRect(); // 结束恢复正确的 dest（动画中抑制了 SizeChanged 自动更新）
             }
         }
