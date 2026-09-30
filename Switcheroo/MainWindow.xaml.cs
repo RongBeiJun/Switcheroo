@@ -73,6 +73,17 @@ namespace Switcheroo
 
         // 逻辑显示状态：窗口常驻屏外缓存（Visibility 恒 Visible），显示/隐藏由该标志与屏外坐标控制
         private bool _isWindowShown;
+
+        // 窗口已稳定显示（定位/DPI 布局完成）后才刷新缩略图，避免唤出瞬间缩略图出现在错误位置
+        private bool _showStable;
+
+        // 最近一次完成显示的时机：跨 DPI 激活不稳定（DPI 布局破坏焦点）时，
+        // 若用户仍按住 Alt 浏览则重新激活；Alt 已释放（主动切换）则正常隐藏
+        private DateTime _shownTimestamp = DateTime.MinValue;
+
+        // 浏览中焦点维持：AutoSwitch 按住 Alt 期间，定期把焦点拉回窗口，
+        // 对抗"唤出后 8-17ms 系统把焦点交给 Alt+Tab 目标"导致的失焦→消失
+        private readonly System.Windows.Threading.DispatcherTimer _keepFocusTimer;
         private bool _sortWinList = false;
 
         private string processFilterText = "";
@@ -116,6 +127,12 @@ namespace Switcheroo
                 }
                 HideThumbnailPreview();
             };
+
+            _keepFocusTimer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(100)
+            };
+            _keepFocusTimer.Tick += (s, e) => KeepFocusTick();
         }
 
         private bool MouseOverPreviewWindowOrList()
@@ -351,12 +368,14 @@ namespace Switcheroo
                 {
                     HideWindow();
                 }
-                else if (args.SystemKey == Key.LeftAlt && !Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && _altTabAutoSwitch )
+                else if (args.SystemKey == Key.LeftAlt && !Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && _altTabAutoSwitch)
                 {
+                    LogDebug("AltKeyUp(SystemKey) → Switch, _altTabAutoSwitch=" + _altTabAutoSwitch);
                     Switch();
                 }
                 else if (args.Key == Key.LeftAlt && _altTabAutoSwitch)
                 {
+                    LogDebug("AltKeyUp(Key) → Switch, _altTabAutoSwitch=" + _altTabAutoSwitch);
                     Switch();
                 }
             };
@@ -448,11 +467,9 @@ namespace Switcheroo
                     // 隐藏状态下先加载数据与布局：内容就绪后再显示，避免窗口出现前的黑色背景帧
                     LoadData(InitialFocus.NextItem);
                     CenterWindow();
-                    Activate();
                     tb.IsEnabled = true;
                     tb.Text = "";
-                    Keyboard.Focus(tb);
-                    AnimateFadeIn();
+                    CompleteShowForCurrentScreen();
                 }
             }
         }
@@ -751,28 +768,8 @@ namespace Switcheroo
             //（尤其跨屏时内容高度差异大，偏移明显——副屏触发概率最高）。
             UpdateLayout();
 
-            var hwnd = new WindowInteropHelper(this).Handle;
-            var targetDpi = (int)Math.Round(96 * MultiMonitorHelper.GetDpiScale(screen));
-            var curDpi = MultiMonitorHelper.GetWindowDpi(hwnd);
-            if (hwnd != IntPtr.Zero && curDpi != targetDpi)
-            {
-                // 跨 DPI 监视器切换：窗口已由 PrepareWindowAcrossDpi 在显示前移到目标屏，
-                // 但 WM_DPICHANGED 可能尚未处理完，DPI 上下文仍是旧屏，此时 Left/Top（DIP）
-                // 会被按旧 DPI 换算成物理位置，而尺寸却按新 DPI 渲染 → 位置偏。
-                // 先按当前上下文定位（保证窗口可见），等 DPI 上下文刷新并重新布局后修正。
-                // 注意：不能用手动 SetWindowPos 跨屏移动窗口——显示后跨屏移动会破坏激活，
-                // 触发 Deactivated → 立即隐藏（表现为“闪一下/不显示”）。
-                SetCenteredPosition(dipBounds);
-
-                Dispatcher.BeginInvoke(new Action(() =>
-                {
-                    UpdateLayout();
-                    SetCenteredPosition(dipBounds);
-                }), DispatcherPriority.Loaded);
-                return;
-            }
-
-            // Position the window in the center of the active screen
+            // 跨 DPI 时的位置精度修正交给 CompleteShow（等渲染稳定、DPI 刷新后、激活前执行），
+            // 不在激活后延迟移动窗口（会破坏激活 → Deactivated → 闪一下消失）。
             SetCenteredPosition(dipBounds);
         }
 
@@ -787,18 +784,41 @@ namespace Switcheroo
         /// </summary>
         private void Switch()
         {
+            LogDebug("Switch() 执行");
             foreach (var item in lb.SelectedItems)
             {
                 var win = (AppWindowViewModel)item;
+                // 授予前台权限：模拟一次 Alt 键。Switcheroo 是后台进程（低层钩子），
+                // 直接 SetForegroundWindow 目标会被前台锁定拒绝（目标只任务栏闪烁提醒）；
+                // Windows 允许"响应 Alt 键"的进程切换前台。此时用户已松开 Alt，无副作用。
+                SimulateAltGrant();
                 win.AppWindow.SwitchToLastVisibleActivePopup();
+                // AttachThreadInput 技巧双保险
+                ForceForegroundWindow(win.AppWindow.HWnd);
             }
 
             HideWindow();
         }
 
+        /// <summary>
+        /// 授予 SetForegroundWindow 前台权限（模拟 Alt 键按下/抬起）。
+        /// </summary>
+        private static void SimulateAltGrant()
+        {
+            keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+            keybd_event(VK_MENU, 0, 0, UIntPtr.Zero);
+            keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+        }
+
+        private const uint KEYEVENTF_KEYUP = 0x2;
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+
         private void HideWindow()
         {
             _hidePreviewTimer.Stop();
+            _keepFocusTimer.Stop();
             HideThumbnailPreview();
 
             if (_windowCloser != null)
@@ -817,6 +837,8 @@ namespace Switcheroo
 
             _isWindowShown = false;
             _isHiding = true;
+            _showStable = false;
+            LogDebug("HideWindow 淡出开始 Opacity=" + Opacity);
 
             // 透明淡出后停屏内（AllowsTransparency 真透明 → 无残留黑窗/边框）
             var fadeOut = new DoubleAnimation(Opacity, 0, TimeSpan.FromMilliseconds(120));
@@ -825,6 +847,7 @@ namespace Switcheroo
             {
                 Opacity = 0;
                 _isHiding = false;
+                LogDebug("HideWindow 淡出完成");
             };
             BeginAnimation(OpacityProperty, fadeOut);
         }
@@ -850,6 +873,7 @@ namespace Switcheroo
         /// </summary>
         private void AnimateFadeIn()
         {
+            LogDebug("AnimateFadeIn 淡入开始");
             var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(120));
             fadeIn.EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut };
             BeginAnimation(OpacityProperty, fadeIn);
@@ -963,9 +987,7 @@ namespace Switcheroo
                 // 隐藏状态下先加载数据与布局：内容就绪后再显示，避免窗口出现前的黑色背景帧
                 LoadData(InitialFocus.NextItem);
                 CenterWindow();
-                Activate();
-                Keyboard.Focus(tb);
-                AnimateFadeIn();
+                CompleteShowForCurrentScreen();
             }
             else
             {
@@ -1037,6 +1059,7 @@ namespace Switcheroo
                 return;
             }
 
+            LogDebug("AltTab显示进入 shiftDown=" + shiftDown);
             _isWindowShown = true;
             tb.IsEnabled = true;
 
@@ -1058,17 +1081,146 @@ namespace Switcheroo
             // 定位到目标屏中心（窗口透明，移动无感）
             CenterWindow();
 
-            ActivateAndFocusMainWindow();
+            // 按 DPI 分流完成显示（同屏同步激活，跨 DPI 等渲染稳定）
+            CompleteShowForCurrentScreen();
+        }
 
+        /// <summary>
+        /// 显示路径的统一"完成显示"：同屏直接同步激活（历史稳定路径，无延迟）；
+        /// 跨 DPI 等渲染稳定后再激活（避免激活后重布局破坏焦点）。
+        /// </summary>
+        private void CompleteShowForCurrentScreen()
+        {
+            var hwnd = new WindowInteropHelper(this).Handle;
+            var targetDpi = (int)Math.Round(96 * MultiMonitorHelper.GetDpiScale(
+                _activeScreen ?? MultiMonitorHelper.GetMouseScreen()));
+            var curDpi = MultiMonitorHelper.GetWindowDpi(hwnd);
+            LogDebug("CompleteShowForCurrentScreen curDpi=" + curDpi + " target=" + targetDpi
+                + " → " + (hwnd != IntPtr.Zero && curDpi != targetDpi ? "跨DPI延迟" : "同步"));
+            if (hwnd != IntPtr.Zero && curDpi != targetDpi)
+            {
+                FinishShowAfterStable();
+            }
+            else
+            {
+                CompleteShowCore();
+            }
+        }
+
+        /// <summary>
+        /// 跨 DPI 唤出：轮询等窗口 DPI 真正对齐目标屏（WM_DPICHANGED 已处理、布局稳定）后再激活。
+        /// 若在 DPI 刷新前激活，激活后的 DPI 重布局会破坏焦点 → Deactivated → 窗口消失
+        ///（表现为"每次换屏后第一次唤出消失，第二次才正常"）。
+        /// </summary>
+        private void FinishShowAfterStable()
+        {
+            var hwnd = new WindowInteropHelper(this).Handle;
+            var screen = _activeScreen ?? MultiMonitorHelper.GetMouseScreen();
+            var targetDpi = (int)Math.Round(96 * MultiMonitorHelper.GetDpiScale(screen));
+            if (hwnd == IntPtr.Zero)
+            {
+                CompleteShow();
+                return;
+            }
+
+            var started = DateTime.Now;
+            var checker = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(16)
+            };
+            checker.Tick += (s, e) =>
+            {
+                if (MultiMonitorHelper.GetWindowDpi(hwnd) == targetDpi ||
+                    (DateTime.Now - started).TotalMilliseconds > 500)
+                {
+                    checker.Stop();
+                    CompleteShow();
+                }
+            };
+            checker.Start();
+        }
+
+        /// <summary>
+        /// 跨 DPI 稳定后的完成路径：按新 DPI 精确定位（激活前）→ 常规完成。
+        /// 竞态防护：等待期间窗口可能已被隐藏（用户快速切换/退出）→ 不再重新显示。
+        /// </summary>
+        private void CompleteShow()
+        {
+            LogDebug("CompleteShow(跨DPI稳定后) 执行, shown=" + _isWindowShown + " hiding=" + _isHiding);
+            if (!_isWindowShown || _isHiding)
+            {
+                return;
+            }
+            var screen = _activeScreen ?? MultiMonitorHelper.GetMouseScreen();
+            var dipBounds = MultiMonitorHelper.ToDIPBounds(screen);
+            // CenterWindow 时 DPI 可能尚未刷新，这里按刷新后的新 DPI 精准居中（激活前完成，不再移动已激活窗口）
+            SetCenteredPosition(dipBounds);
+            CompleteShowCore();
+        }
+
+        /// <summary>
+        /// 浏览中焦点维持：AutoSwitch 按住 Alt 期间窗口失焦（系统 Alt+Tab 焦点转移/DPI 布局干扰）
+        /// 时，定期把焦点拉回窗口，避免"唤出后立即消失"。
+        /// </summary>
+        private void KeepFocusTick()
+        {
+            if (!_isWindowShown || _isHiding)
+            {
+                _keepFocusTimer.Stop();
+                return;
+            }
+            var altDown = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
+            if (altDown)
+            {
+                // 浏览中（Alt 按住）：拉回焦点
+                if (!IsKeyboardFocusWithin)
+                {
+                    LogDebug("KeepFocus → ForceActivate()");
+                    ForceActivate();
+                }
+            }
+            else if (_altTabAutoSwitch)
+            {
+                // Alt 已松开：按住 Alt+Tab 时前台被系统锁定，焦点一直在 Alt+Tab 目标 → keyUp 收不到、
+                // 松开时也无 Deactivated 事件 → 依赖这里主动切换退出
+                LogDebug("KeepFocus → Alt已松开 → Switch()");
+                Switch();
+            }
+        }
+
+        /// <summary>
+        /// 常规完成显示：激活 → 刷新选中项缩略图 → 淡入。
+        /// 同屏唤出直接调用（历史稳定路径，无额外延迟）。
+        /// </summary>
+        private void CompleteShowCore()
+        {
+            _shownTimestamp = DateTime.Now;
+            LogDebug("CompleteShowCore 显示完成");
+
+            ActivateAndFocusMainWindow();
             Keyboard.Focus(tb);
 
             if (_altTabAutoSwitch)
             {
                 tb.IsEnabled = false;
                 tb.Text = Localization.Get("SearchPlaceholder");
+                _keepFocusTimer.Start();
             }
 
-            // 内容已加载并完成布局，直接淡入显示（窗口常驻屏内，无表面重建，直接淡入无黑帧）
+            // 窗口已稳定，允许缩略图跟随选中/悬停刷新
+            _showStable = true;
+
+            // 强制刷新选中高亮：LoadData 设置首项选中时 ItemContainer 可能尚未生成（滑块被 Collapsed），
+            // 布局稳定后补一次刷新让蓝色滑块显示
+            UpdateSelectionHighlight(false);
+
+            // 常显缩略图：主窗口定位稳定后显示选中项（正确位置）
+            var selected = lb.SelectedItem as AppWindowViewModel;
+            if (selected != null)
+            {
+                ShowThumbnailPreview(selected);
+            }
+
             AnimateFadeIn();
         }
 
@@ -1080,11 +1232,12 @@ namespace Switcheroo
             // the keyboard input.
             // http://www.codeproject.com/Tips/76427/How-to-bring-window-to-top-with-SetForegroundWindo
 
+            // 用 GetAsyncKeyState（全局物理按键状态）判断 Alt 是否被按住：
+            // AsyncState（GetKeyState）只反映本线程消息队列，低层钩子拦截 Alt+Tab 后 UI 线程收不到 Alt
+            // 消息 → 误判未按住 → 错误地模拟 Alt press/release → 触发焦点转移 → Deactivated → 窗口消失。
             var altKey = new KeyboardKey(Keys.Alt);
             var altKeyPressed = false;
-
-            // Press the Alt key if it is not already being pressed
-            if ((altKey.AsyncState & 0x8000) == 0)
+            if ((GetAsyncKeyState(VK_MENU) & 0x8000) == 0)
             {
                 altKey.Press();
                 altKeyPressed = true;
@@ -1096,17 +1249,69 @@ namespace Switcheroo
             // Bring the Switcheroo window to the foreground
             Show();
 
-            // Handle 必须在 Show() 之后获取：首次显示前 hwnd 尚不存在（Handle 为 0）。
-            var thisWindowHandle = new WindowInteropHelper(this).Handle;
-            var thisWindow = new AppWindow(thisWindowHandle);
-
-            SystemWindow.ForegroundWindow = thisWindow;
-            Activate();
+            // 强制激活（绕过前台锁定，按住 Alt 时也能把焦点给 Switcheroo）
+            ForceActivate();
 
             // Release the Alt key if it was pressed above
             if (altKeyPressed)
             {
                 altKey.Release();
+            }
+        }
+
+        private const int VK_MENU = 0x12;
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern short GetAsyncKeyState(int vKey);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        private static extern uint GetCurrentThreadId();
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool BringWindowToTop(IntPtr hWnd);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        /// <summary>
+        /// 强制把指定窗口设为前台（AttachThreadInput 绕过 Windows 前台锁定）。
+        /// </summary>
+        private static void ForceForegroundWindow(IntPtr hwnd)
+        {
+            var foregroundThread = GetWindowThreadProcessId(GetForegroundWindow(), out _);
+            var currentThread = GetCurrentThreadId();
+            if (foregroundThread != currentThread)
+            {
+                AttachThreadInput(foregroundThread, currentThread, true);
+                BringWindowToTop(hwnd);
+                SetForegroundWindow(hwnd);
+                AttachThreadInput(foregroundThread, currentThread, false);
+            }
+            else
+            {
+                SetForegroundWindow(hwnd);
+            }
+        }
+
+        /// <summary>
+        /// 强制激活（AttachThreadInput 绕过 Windows 前台锁定）：
+        /// 按住 Alt 浏览时普通 Activate() 受前台锁定限制无效（焦点抢不回 → Alt KeyUp 收不到 → 松开 Alt 不退出）。
+        /// </summary>
+        private void ForceActivate()
+        {
+            var hwnd = new WindowInteropHelper(this).Handle;
+            if (hwnd != IntPtr.Zero)
+            {
+                ForceForegroundWindow(hwnd);
             }
         }
 
@@ -1218,9 +1423,12 @@ namespace Switcheroo
                 return;
             }
 
-            // 延迟隐藏，避免鼠标经过缩略图窗口时反复显示/隐藏
-            _hidePreviewTimer.Stop();
-            _hidePreviewTimer.Start();
+            // 常显缩略图：鼠标离开列表后恢复显示选中项对应的预览（而非隐藏）
+            var selected = lb.SelectedItem as AppWindowViewModel;
+            if (selected != null)
+            {
+                ShowThumbnailPreview(selected);
+            }
         }
 
         private void ShowThumbnailPreview(AppWindowViewModel viewModel)
@@ -1238,71 +1446,122 @@ namespace Switcheroo
                 _thumbnailPreviewWindow.Closed += (s, args) => _thumbnailPreviewWindow = null;
             }
 
-            // 缩略图跟随鼠标所在屏定位（悬停时鼠标必然在当前屏），
-            // 不能沿用 Alt+Tab 时的 _activeScreen，否则跨屏后位置/钳制错误。
-            var screen = MultiMonitorHelper.GetMouseScreen();
+            // 缩略图固定显示在主窗口右侧，定位用主窗口所在屏（_activeScreen）；
+            // 用鼠标屏在跨 DPI 键盘唤起时鼠标可能停在旧屏 → 缩略图错误出现在主屏幕
+            var screen = _activeScreen ?? MultiMonitorHelper.GetMouseScreen();
             var dipBounds = MultiMonitorHelper.ToDIPBounds(screen);
 
             // 最大预览尺寸：屏幕内留出边距
             var maxW = dipBounds.Width - 80;
             var maxH = dipBounds.Height - 80;
 
-            // 先按源窗口比例调整预览窗口尺寸并注册缩略图
-            _thumbnailPreviewWindow.ShowThumbnail(viewModel.HWnd, maxW, maxH);
-
             var hwnd = new WindowInteropHelper(_thumbnailPreviewWindow).Handle;
             var targetDpi = (int)Math.Round(96 * MultiMonitorHelper.GetDpiScale(screen));
             if (hwnd != IntPtr.Zero && MultiMonitorHelper.GetWindowDpi(hwnd) != targetDpi)
             {
-                // 预览窗口是复用的单例，上次可能在别的 DPI 屏显示，其 DPI 上下文滞后。
-                // 若不刷新，DIP 位置/尺寸会被按旧 DPI 解释 → 缩略图被错位放大。
-                // 先物理移入目标屏触发 DPI 上下文刷新，再于布局后定位。
+                // 预览窗口 DPI 滞后（上次在别的 DPI 屏显示）：若直接 Show 会先在旧位置闪一帧。
+                // 先真正隐藏（Opacity=0 在非分层窗口会显示黑块）→ 注册/适配源（不显示）→
+                // 物理移入目标屏触发 DPI 刷新 → 轮询等 DPI 真正对齐（不赌渲染时序）→
+                // 重新拟合尺寸 + 物理定位显示 → 保证正确屏幕正确位置，无首帧错位。
+                _thumbnailPreviewWindow.Hide();
+                _thumbnailPreviewWindow.ShowThumbnail(viewModel.HWnd, maxW, maxH, show: false);
                 MultiMonitorHelper.MoveWindowPhysical(hwnd,
                     screen.Bounds.X + screen.Bounds.Width / 2,
                     screen.Bounds.Y + screen.Bounds.Height / 2);
 
-                Dispatcher.BeginInvoke(new Action(() => PositionThumbnailPreview(dipBounds)),
-                    DispatcherPriority.Loaded);
+                var started = DateTime.Now;
+                var checker = new System.Windows.Threading.DispatcherTimer
+                {
+                    Interval = TimeSpan.FromMilliseconds(16)
+                };
+                checker.Tick += (s2, e2) =>
+                {
+                    if (MultiMonitorHelper.GetWindowDpi(hwnd) == targetDpi ||
+                        (DateTime.Now - started).TotalMilliseconds > 500)
+                    {
+                        checker.Stop();
+                        // DPI 已对齐：按新 DPI 重新拟合尺寸并定位
+                        _thumbnailPreviewWindow.RefitToSource(maxW, maxH);
+                        PositionThumbnailPreview(dipBounds);
+                    }
+                };
+                checker.Start();
                 return;
             }
 
-            // 再以调整后的实际尺寸定位到鼠标旁边
+            // 先按源窗口比例调整预览窗口尺寸并注册缩略图，再定位
+            _thumbnailPreviewWindow.ShowThumbnail(viewModel.HWnd, maxW, maxH);
             PositionThumbnailPreview(dipBounds);
         }
 
         private void PositionThumbnailPreview(Rect dipBounds)
         {
-            // 固定在主窗口右侧、垂直居中于主窗口；右侧放不下则移到左侧（不再跟随鼠标）
-            const double gap = 24;
-            var previewW = _thumbnailPreviewWindow.Width;
-            var previewH = _thumbnailPreviewWindow.Height;
-
-            double left;
-            if (Left + ActualWidth + gap + previewW <= dipBounds.Right)
+            LogPreviewDebug("Position开始");
+            var mainHwnd = new WindowInteropHelper(this).Handle;
+            var previewHwnd = new WindowInteropHelper(_thumbnailPreviewWindow).Handle;
+            if (mainHwnd == IntPtr.Zero || previewHwnd == IntPtr.Zero)
             {
-                left = Left + ActualWidth + gap;
+                return;
+            }
+
+            RECT mainRect;
+            RECT prevRect;
+            if (!GetWindowRect(mainHwnd, out mainRect) || !GetWindowRect(previewHwnd, out prevRect))
+            {
+                return;
+            }
+
+            int previewW = prevRect.Right - prevRect.Left;
+            int previewH = prevRect.Bottom - prevRect.Top;
+            if (previewW <= 0 || previewH <= 0)
+            {
+                return;
+            }
+
+            // 全部用物理像素坐标：主窗口右侧垂直居中，右侧放不下移到左侧，钳制到目标屏
+            var screen = _activeScreen ?? MultiMonitorHelper.GetMouseScreen();
+            var sb = screen.Bounds;
+            const int gap = 24;
+            int left = mainRect.Right + gap;
+            int top = mainRect.Top + (mainRect.Bottom - mainRect.Top - previewH) / 2;
+            if (left + previewW > sb.X + sb.Width)
+            {
+                left = mainRect.Left - gap - previewW;
+            }
+            left = Math.Max(sb.X, Math.Min(left, sb.X + sb.Width - previewW));
+            top = Math.Max(sb.Y, Math.Min(top, sb.Y + sb.Height - previewH));
+
+            // 同屏微调（位置差小、真实显示中）→ WPF DIP 平滑移动（同屏 DPI 一致，换算正确）；
+            // 跨屏/首次/残留 → 物理 SetWindowPos 精确定位 + 纯淡入（杜绝 DIP 换算错屏）
+            int dist = Math.Abs(prevRect.Left - left) + Math.Abs(prevRect.Top - top);
+            if (_thumbnailPreviewWindow.Visibility == Visibility.Visible &&
+                _thumbnailPreviewWindow.Opacity > 0.01 &&
+                dist < 400)
+            {
+                var scale = MultiMonitorHelper.GetDpiScale(screen);
+                _thumbnailPreviewWindow.MoveAnimated(left / scale, top / scale);
             }
             else
             {
-                left = Left - gap - previewW;
+                MultiMonitorHelper.MoveWindowPhysical(previewHwnd, left, top);
+                _thumbnailPreviewWindow.ShowFadeIn();
             }
-
-            double top = Top + (ActualHeight - previewH) / 2.0;
-
-            // 钳制到屏幕内
-            left = Math.Max(dipBounds.X, Math.Min(left, dipBounds.Right - previewW));
-            top = Math.Max(dipBounds.Y, Math.Min(top, dipBounds.Bottom - previewH));
-
-            // 已可见（悬停切换项）→ 吸附平滑移动；首次显示 → 淡入
-            if (_thumbnailPreviewWindow.Visibility == Visibility.Visible)
-            {
-                _thumbnailPreviewWindow.MoveAnimated(left, top);
-            }
-            else
-            {
-                _thumbnailPreviewWindow.ShowAnimated(left, top);
-            }
+            LogPreviewDebug("Position结束 left=" + left + " top=" + top);
         }
+
+        /// <summary>
+        /// 调试日志（发布版为空操作）。
+        /// </summary>
+        private void LogDebug(string msg)
+        {
+        }
+
+        private void LogPreviewDebug(string stage)
+        {
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
         private void HideThumbnailPreview()
         {
@@ -1513,8 +1772,25 @@ namespace Switcheroo
             }
         }
 
-        private void MainWindow_OnLostFocus(object sender, EventArgs e)
+        private async void MainWindow_OnLostFocus(object sender, EventArgs e)
         {
+            LogDebug("OnLostFocus 触发");
+            // 跨 DPI 唤起时激活状态可能短暂波动，延迟确认再处理
+            await Task.Delay(150);
+            if (!_isWindowShown || IsKeyboardFocusWithin)
+            {
+                return;
+            }
+
+            var altDown = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
+            // AutoSwitch 浏览中（Alt 按住）：焦点由 KeepFocusTimer 主动维持，此时不隐藏
+            if (altDown && _altTabAutoSwitch)
+            {
+                LogDebug("OnLostFocus → 浏览中(Alt按住)，交给焦点维持");
+                return;
+            }
+
+            LogDebug("OnLostFocus → HideWindow(Alt已释放)");
             HideWindow();
         }
 
@@ -1551,6 +1827,7 @@ namespace Switcheroo
         private void HookUpSelectionHighlight()
         {
             lb.SelectionChanged += (s, e) => UpdateSelectionHighlight(true);
+            lb.SelectionChanged += (s, e) => OnSelectionChangedShowThumbnail();
             lb.SizeChanged += (s, e) => UpdateSelectionHighlight(false);
             var scrollViewer = lb.Template?.FindName("ScrollViewer", lb) as System.Windows.Controls.ScrollViewer;
             if (scrollViewer != null)
@@ -1558,6 +1835,23 @@ namespace Switcheroo
                 scrollViewer.ScrollChanged += (s, e) => UpdateSelectionHighlight(false);
             }
             UpdateSelectionHighlight(false);
+        }
+
+        /// <summary>
+        /// 常显缩略图需求：选中项变化时刷新预览（鼠标未悬停时始终显示选中项对应的窗口缩略图）。
+        /// </summary>
+        private void OnSelectionChangedShowThumbnail()
+        {
+            // 窗口稳定显示后才跟随刷新缩略图（唤出瞬间主窗口尚未定位/DPI 未稳定，避免缩略图出现在错误位置）
+            if (!_isWindowShown || !_showStable)
+            {
+                return;
+            }
+            var selected = lb.SelectedItem as AppWindowViewModel;
+            if (selected != null)
+            {
+                ShowThumbnailPreview(selected);
+            }
         }
 
         private void UpdateSelectionHighlight(bool animate)

@@ -103,9 +103,18 @@ namespace Switcheroo
         private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int attributeValue, int attributeSize);
 
         /// <summary>
-        /// 显示 source 窗口的实时缩略图。若 source 改变则重新注册并自适应窗口尺寸。
+        /// DPI 上下文刷新后按源窗口比例重新拟合窗口尺寸（跨 DPI 屏显示前调用）。
         /// </summary>
-        public void ShowThumbnail(IntPtr sourceHwnd, double maxWidth, double maxHeight)
+        public void RefitToSource(double maxWidth, double maxHeight)
+        {
+            FitWindowToSource(maxWidth, maxHeight);
+        }
+
+        /// <summary>
+        /// 显示 source 窗口的实时缩略图。若 source 改变则重新注册并自适应窗口尺寸。
+        /// show=false 时仅注册/适配，不显示（跨 DPI 先移动对齐后再显示，避免错屏闪帧）。
+        /// </summary>
+        public void ShowThumbnail(IntPtr sourceHwnd, double maxWidth, double maxHeight, bool show = true)
         {
             if (sourceHwnd == IntPtr.Zero)
             {
@@ -119,7 +128,10 @@ namespace Switcheroo
                 // 尚未显示过（hwnd 不存在）：先记录源窗口并显示，注册延后到 OnSourceInitialized
                 _sourceHwnd = sourceHwnd;
                 FitWindowToSource(maxWidth, maxHeight);
-                Show();
+                if (show)
+                {
+                    Show();
+                }
                 return;
             }
 
@@ -138,7 +150,7 @@ namespace Switcheroo
 
             // 尺寸/比例可能已变，布局完成后重算目标矩形
             Dispatcher.BeginInvoke(new Action(UpdateThumbnailRect), DispatcherPriority.Loaded);
-            if (Visibility != Visibility.Visible)
+            if (show && Visibility != Visibility.Visible)
             {
                 Show();
             }
@@ -182,6 +194,18 @@ namespace Switcheroo
         public void HideThumbnail()
         {
             Hide();
+        }
+
+        /// <summary>
+        /// 纯淡入显示（位置已由外部用物理坐标 SetWindowPos 定位，不再经 WPF Left/Top 跨屏）。
+        /// </summary>
+        public void ShowFadeIn()
+        {
+            Show();
+            Opacity = 0;
+            var anim = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(120));
+            anim.EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut };
+            BeginAnimation(OpacityProperty, anim);
         }
 
         /// <summary>
