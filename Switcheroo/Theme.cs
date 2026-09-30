@@ -49,8 +49,10 @@ namespace Switcheroo
 
         private static void SetUpTheme()
         {
-            mainWindow.Background =
-                mainWindow.Border.Background =
+            // 窗口本身透明（AllowsTransparency），圆角/背景由根 Border 承担，避免圆角外露出方角
+            mainWindow.Background = System.Windows.Media.Brushes.Transparent;
+
+            mainWindow.Border.Background =
                 mainWindow.tb.Background = mainWindow.lb.Background
                 = mainWindow.Border.BorderBrush = Background;
 

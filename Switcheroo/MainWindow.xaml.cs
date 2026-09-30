@@ -67,6 +67,12 @@ namespace Switcheroo
         private AltTabHook _altTabHook;
         private SystemWindow _foregroundWindow;
         private bool _altTabAutoSwitch;
+
+        // 淡出动画进行中：窗口仍 Visible，但逻辑上应视为已隐藏（避免快速再次 Alt+Tab 误判）
+        private bool _isHiding;
+
+        // 逻辑显示状态：窗口常驻屏外缓存（Visibility 恒 Visible），显示/隐藏由该标志与屏外坐标控制
+        private bool _isWindowShown;
         private bool _sortWinList = false;
 
         private string processFilterText = "";
@@ -432,18 +438,21 @@ namespace Switcheroo
         {
             if (e.Button == MouseButtons.Left)
             {
-                if (Visibility != Visibility.Visible)
+                if (!_isWindowShown || _isHiding)
                 {
+                    _isWindowShown = true;
+                    // 先置为全透明（移动/DPI 更新全程透明）
+                    PrepareFadeIn();
                    _foregroundWindow = SystemWindow.ForegroundWindow;
                     PrepareWindowAcrossDpi();
                     // 隐藏状态下先加载数据与布局：内容就绪后再显示，避免窗口出现前的黑色背景帧
                     LoadData(InitialFocus.NextItem);
-                    Show();
+                    CenterWindow();
                     Activate();
                     tb.IsEnabled = true;
                     tb.Text = "";
                     Keyboard.Focus(tb);
-                    Opacity = 1;
+                    AnimateFadeIn();
                 }
             }
         }
@@ -575,7 +584,11 @@ namespace Switcheroo
         {
             _activeScreen = MultiMonitorHelper.GetMouseScreen();
 
-            var windows = GetWindowSnapshot().Select(window => new AppWindowViewModel(window)).ToList();
+            // 排除自身（窗口常驻屏外缓存，是可见顶层窗口，否则会出现在自己的切换列表里）
+            var selfHwnd = new WindowInteropHelper(this).Handle;
+            var windows = GetWindowSnapshot()
+                .Where(w => w.HWnd != selfHwnd)
+                .Select(window => new AppWindowViewModel(window)).ToList();
             _unfilteredWindowList = FilterWindowsOnScreen(windows);
 
             //qxx
@@ -729,9 +742,9 @@ namespace Switcheroo
             Border.MaxHeight = dipBounds.Height;
             Border.MaxWidth = dipBounds.Width;
 
-            // Force a rendering before repositioning the window
-            SizeToContent = SizeToContent.Manual;
-            SizeToContent = SizeToContent.WidthAndHeight;
+            // 不再手动切换 SizeToContent（窗口保持 XAML 的 WidthAndHeight，内容更新后自动调整尺寸）：
+            // 强制 Manual↔WidthAndHeight 会触发 hwnd resize → 重定向表面重建 → DWM 黑帧。
+            // 跨屏/分辨率变化由 PrepareWindowAcrossDpi 触发 WM_DPICHANGED 自动重新布局。
 
             // 强制同步完成 measure/arrange，使 ActualWidth/ActualHeight 反映当前内容尺寸。
             // 此前切换 SizeToContent 不触发布局，读到的仍是上一次布局的陈旧值，导致窗口偶尔不居中
@@ -795,13 +808,51 @@ namespace Switcheroo
             }
 
             _altTabAutoSwitch = false;
-            Opacity = 0;
 
-            // 同步隐藏（原为 BeginInvoke(Hide, Input) 延迟隐藏）：
-            // 延迟隐藏会让窗口短暂保持 Visibility=Visible（“幽灵可见”），
-            // 此时立刻再次 Alt+Tab 会误判为已可见而走 else 分支不显示 → 表现为“闪一下”。
-            // 同时消除隐藏瞬间残留一帧窗口背景的黑色闪影。
-            Hide();
+            // 已隐藏或正在淡出：不重复处理
+            if (!_isWindowShown || _isHiding)
+            {
+                return;
+            }
+
+            _isWindowShown = false;
+            _isHiding = true;
+
+            // 透明淡出后停屏内（AllowsTransparency 真透明 → 无残留黑窗/边框）
+            var fadeOut = new DoubleAnimation(Opacity, 0, TimeSpan.FromMilliseconds(120));
+            fadeOut.EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn };
+            fadeOut.Completed += (s, e) =>
+            {
+                Opacity = 0;
+                _isHiding = false;
+            };
+            BeginAnimation(OpacityProperty, fadeOut);
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+
+        /// <summary>
+        /// 显示前把窗口置为全透明（定位完成、动画前调用）。
+        /// </summary>
+        private void PrepareFadeIn()
+        {
+            _isHiding = false;
+            BeginAnimation(OpacityProperty, null);
+            Opacity = 0;
+        }
+
+        /// <summary>
+        /// 启动透明淡入动画（窗口内容已缓存渲染，无黑闪，可放心做纯淡入）。
+        /// </summary>
+        private void AnimateFadeIn()
+        {
+            var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(120));
+            fadeIn.EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut };
+            BeginAnimation(OpacityProperty, fadeIn);
         }
 
         #endregion
@@ -899,18 +950,22 @@ namespace Switcheroo
                 return;
             }
 
-            if (Visibility != Visibility.Visible)
+            if (!_isWindowShown || _isHiding)
             {
+                _isWindowShown = true;
                 tb.IsEnabled = true;
+
+                // 先置为全透明（移动/DPI 更新全程透明）
+                PrepareFadeIn();
 
                 _foregroundWindow = SystemWindow.ForegroundWindow;
                 PrepareWindowAcrossDpi();
                 // 隐藏状态下先加载数据与布局：内容就绪后再显示，避免窗口出现前的黑色背景帧
                 LoadData(InitialFocus.NextItem);
-                Show();
+                CenterWindow();
                 Activate();
                 Keyboard.Focus(tb);
-                Opacity = 1;
+                AnimateFadeIn();
             }
             else
             {
@@ -940,7 +995,7 @@ namespace Switcheroo
             //（枚举窗口、UI 更新等耗时操作），Windows 判定钩子超时会让系统切换器
             // 接管 Alt+Tab —— 表现为窗口“闪一下”或完全不显示。
             // 显示逻辑延迟到 Dispatcher 队列执行。
-            if (Visibility != Visibility.Visible)
+            if (!_isWindowShown || _isHiding)
             {
                 var shiftDown = e.ShiftDown;
 
@@ -968,7 +1023,7 @@ namespace Switcheroo
 
         private void ShowMainWindowFromAltTab(bool shiftDown)
         {
-            if (Visibility == Visibility.Visible)
+            if (_isWindowShown && !_isHiding)
             {
                 // 队列延迟期间窗口可能已被显示（如快速连按），此时只切换选中项
                 if (shiftDown)
@@ -982,7 +1037,11 @@ namespace Switcheroo
                 return;
             }
 
+            _isWindowShown = true;
             tb.IsEnabled = true;
+
+            // 先置为全透明：移动/DPI 更新全程透明，避免目标位置透出黑色表面
+            PrepareFadeIn();
 
             // 隐藏状态下先加载数据与布局：内容就绪后再显示窗口，
             // 窗口第一帧即内容（消除出现前的黑色背景帧）。
@@ -996,6 +1055,9 @@ namespace Switcheroo
                 LoadData(InitialFocus.NextItem);
             }
 
+            // 定位到目标屏中心（窗口透明，移动无感）
+            CenterWindow();
+
             ActivateAndFocusMainWindow();
 
             Keyboard.Focus(tb);
@@ -1006,8 +1068,8 @@ namespace Switcheroo
                 tb.Text = Localization.Get("SearchPlaceholder");
             }
 
-            // 内容已加载并完成布局，直接显示
-            Opacity = 1;
+            // 内容已加载并完成布局，直接淡入显示（窗口常驻屏内，无表面重建，直接淡入无黑帧）
+            AnimateFadeIn();
         }
 
         private void ActivateAndFocusMainWindow()
@@ -1135,6 +1197,12 @@ namespace Switcheroo
 
         private void ListBoxItem_MouseEnter(object sender, System.Windows.Input.MouseEventArgs e)
         {
+            // 主窗口逻辑隐藏时（淡出中/已隐藏）忽略悬停，避免残留黑色缩略图窗口
+            if (!_isWindowShown)
+            {
+                return;
+            }
+
             var item = sender as ListBoxItem;
             var viewModel = item?.DataContext as AppWindowViewModel;
             if (viewModel == null) return;
@@ -1145,6 +1213,11 @@ namespace Switcheroo
 
         private void ListBox_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
         {
+            if (!_isWindowShown)
+            {
+                return;
+            }
+
             // 延迟隐藏，避免鼠标经过缩略图窗口时反复显示/隐藏
             _hidePreviewTimer.Stop();
             _hidePreviewTimer.Start();
@@ -1152,6 +1225,13 @@ namespace Switcheroo
 
         private void ShowThumbnailPreview(AppWindowViewModel viewModel)
         {
+            // 主窗口逻辑隐藏时（淡出中/已隐藏）不再显示缩略图，避免残留黑色预览窗口
+            if (!_isWindowShown)
+            {
+                HideThumbnailPreview();
+                return;
+            }
+
             if (_thumbnailPreviewWindow == null)
             {
                 _thumbnailPreviewWindow = new ThumbnailPreviewWindow();
@@ -1229,6 +1309,22 @@ namespace Switcheroo
             if (_thumbnailPreviewWindow != null)
             {
                 _thumbnailPreviewWindow.HideAnimated();
+
+                // 兜底：若淡出动画被鼠标事件打断，300ms 后强制隐藏，杜绝残留黑色预览窗口
+                var guard = new System.Windows.Threading.DispatcherTimer
+                {
+                    Interval = TimeSpan.FromMilliseconds(300)
+                };
+                guard.Tick += (s, e) =>
+                {
+                    guard.Stop();
+                    if (_thumbnailPreviewWindow != null &&
+                        _thumbnailPreviewWindow.Visibility == Visibility.Visible)
+                    {
+                        _thumbnailPreviewWindow.Hide();
+                    }
+                };
+                guard.Start();
             }
         }
         
@@ -1425,9 +1521,28 @@ namespace Switcheroo
         private void MainWindow_OnLoaded(object sender, RoutedEventArgs e)
         {
             DisableSystemMenu();
-            EnableRoundedCorners();
+            // 分层窗口（AllowsTransparency）下 DWM 圆角属性会绘制不受 Opacity 控制的圆角边框，
+            // 造成透明后残留边框 → 圆角改由根 Border 的 CornerRadius 承担，不再启用 DWM 圆角
+            //EnableRoundedCorners();
             TryApplyUiFont();
             HookUpSelectionHighlight();
+            PrepareOffscreenCache();
+        }
+
+        /// <summary>
+        /// 窗口缓存：启动后把窗口停在鼠标所在屏中心（透明 + 点击穿透），
+        /// 保持重定向表面有效且 DPI 与目标屏一致。此后切换只更新内容 + 淡入淡出，
+        /// 无移动、无 DPI 变化、无表面重建 → 无 DWM 黑帧。
+        /// </summary>
+        private void PrepareOffscreenCache()
+        {
+            _isWindowShown = false;
+            Opacity = 0;
+
+            _activeScreen = MultiMonitorHelper.GetMouseScreen();
+            LoadData(InitialFocus.NextItem);
+            UpdateLayout();
+            CenterWindow();
         }
 
         /// <summary>
@@ -1553,7 +1668,18 @@ namespace Switcheroo
             var windowHandle = new WindowInteropHelper(this).Handle;
             var window = new SystemWindow(windowHandle);
             window.Style = window.Style & ~WindowStyleFlags.SYSMENU;
+
+            // 移除 OS 层边框样式（WS_BORDER/WS_DLGFRAME）：这类边框不受窗口 Opacity 控制，
+            // 窗口透明后仍会留下"主窗口大小的边框"残留。
+            var style = GetWindowLong(windowHandle, GWL_STYLE);
+            style &= ~(WS_BORDER | WS_DLGFRAME | WS_THICKFRAME);
+            SetWindowLong(windowHandle, GWL_STYLE, style);
         }
+
+        private const int GWL_STYLE = -16;
+        private const int WS_BORDER = 0x00800000;
+        private const int WS_DLGFRAME = 0x00400000;
+        private const int WS_THICKFRAME = 0x00040000;
 
         private void ShowHelpTextBlock_OnPreviewMouseDown(object sender, MouseButtonEventArgs e)
         {

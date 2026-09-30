@@ -4,9 +4,9 @@
         xmlns:local="clr-namespace:Switcheroo"
         xmlns:system="clr-namespace:System;assembly=mscorlib"
         Closing="OnClose" ResizeMode="NoResize" ShowInTaskbar="False" WindowStyle="None"
+        AllowsTransparency="True"
         SizeToContent="WidthAndHeight"
-        Title="" MinWidth="800" Deactivated="MainWindow_OnLostFocus" Loaded="MainWindow_OnLoaded"
-        BorderThickness="1">
+        Title="" MinWidth="800" Deactivated="MainWindow_OnLostFocus" Loaded="MainWindow_OnLoaded">
 
     <Window.CommandBindings>
         <CommandBinding Command="local:MainWindow.CloseWindowCommand"
@@ -51,7 +51,7 @@
         <SolidColorBrush x:Key="AccentBrush" Color="#4A90D9" />
     </Window.Resources>
 
-    <Border Padding="3" Background="White" BorderBrush="DarkGray" BorderThickness="1" Name="Border">
+    <Border Padding="3" Background="White" Name="Border" CornerRadius="8">
         <DockPanel LastChildFill="True">
             <!--帮助信息-->
             <DockPanel Margin="4,0,4,0" Name="HelpPanel" Background="Transparent" Height="0" DockPanel.Dock="Top">

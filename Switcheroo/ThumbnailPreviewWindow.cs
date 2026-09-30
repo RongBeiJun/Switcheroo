@@ -16,6 +16,9 @@ namespace Switcheroo
     {
         private const int GWL_EXSTYLE = -20;
 
+        // 圆角描边环宽度（物理像素）：缩略图 dest rect 相应内缩
+        private const int OutlinePx = 2;
+
         [DllImport("user32.dll")]
         private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
@@ -37,10 +40,17 @@ namespace Switcheroo
             Topmost = true;
             AllowsTransparency = false;
             Background = System.Windows.Media.Brushes.Black;
-            // 外轮廓：细边框 + 圆角，突出预览轮廓
-            BorderBrush = new System.Windows.Media.SolidColorBrush(
-                System.Windows.Media.Color.FromArgb(200, 74, 144, 217));
-            BorderThickness = new Thickness(2);
+            // 圆角外轮廓：Content 层的圆角描边环（WPF 层在 DWM 缩略图之下，缩略图内缩 2px 露出）。
+            // 不用窗口 BorderBrush（方形边框）——DWM 圆角会把它裁出缺口。
+            Content = new System.Windows.Controls.Border
+            {
+                CornerRadius = new CornerRadius(8),
+                BorderBrush = new System.Windows.Media.SolidColorBrush(
+                    System.Windows.Media.Color.FromArgb(200, 74, 144, 217)),
+                BorderThickness = new Thickness(2),
+                Background = null,
+                IsHitTestVisible = false
+            };
             SizeToContent = SizeToContent.Manual;
             Width = 480;
             Height = 300;
@@ -52,6 +62,7 @@ namespace Switcheroo
             base.OnSourceInitialized(e);
             var handle = new WindowInteropHelper(this).Handle;
             DisableActivation(handle);
+            EnableRoundedCorners(handle);
 
             // 首次显示：此时 hwnd 才存在，若已登记了源窗口则补齐注册
             if (_sourceHwnd != IntPtr.Zero && _thumbnailId == IntPtr.Zero)
@@ -68,6 +79,28 @@ namespace Switcheroo
             exStyle |= (int)WindowExStyleFlags.TOOLWINDOW;
             SetWindowLong(hwnd, GWL_EXSTYLE, exStyle);
         }
+
+        /// <summary>
+        /// Windows 11 下给缩略图窗口启用 DWM 圆角，剪裁缩略图与描边四角（与主窗口一致）。
+        /// </summary>
+        private static void EnableRoundedCorners(IntPtr hwnd)
+        {
+            try
+            {
+                // DWMWA_WINDOW_CORNER_PREFERENCE = 33, DWMWCP_ROUND = 2
+                const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+                const int DWMWCP_ROUND = 2;
+                int preference = DWMWCP_ROUND;
+                DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref preference, sizeof(int));
+            }
+            catch
+            {
+                // Windows 10 或更早不支持，忽略
+            }
+        }
+
+        [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int attributeValue, int attributeSize);
 
         /// <summary>
         /// 显示 source 窗口的实时缩略图。若 source 改变则重新注册并自适应窗口尺寸。
@@ -236,12 +269,13 @@ namespace Switcheroo
                 return;
             }
 
+            // 内缩 2px 露出圆角描边环（缩略图本身铺满内缩后的区域）
             var dest = new RECT
             {
-                Left = client.Left,
-                Top = client.Top,
-                Right = client.Right,
-                Bottom = client.Bottom
+                Left = client.Left + OutlinePx,
+                Top = client.Top + OutlinePx,
+                Right = client.Right - OutlinePx,
+                Bottom = client.Bottom - OutlinePx
             };
             if (!DwmThumbnail.Update(_thumbnailId, dest, true))
             {
