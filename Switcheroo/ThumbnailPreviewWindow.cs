@@ -156,9 +156,13 @@ namespace Switcheroo
             {
                 UnregisterThumbnail();
                 _sourceHwnd = sourceHwnd;
-                FitWindowToSource(maxWidth, maxHeight);
                 _thumbnailId = DwmThumbnail.Register(handle, sourceHwnd);
             }
+
+            // 每次调用都按源窗口比例重拟合窗口尺寸：切换动画会临时把窗口放大到目标窗口大小，
+            // 若只在 source 变化时 Fit，动画后缩略图会残留"放大态"大尺寸（被定位到屏左侧且巨大）。
+            // 正常显示时计算出的尺寸与当前相同，设置无副作用。
+            FitWindowToSource(maxWidth, maxHeight);
 
             if (_thumbnailId == IntPtr.Zero)
             {
@@ -304,6 +308,93 @@ namespace Switcheroo
                 CompositionTarget.Rendering -= _moveRenderHandler;
                 _moveRenderHandler = null;
             }
+        }
+
+        /// <summary>缩放动画（物理坐标逐帧 SetWindowPos）状态。</summary>
+        private EventHandler _scaleTickHandler;
+        private IntPtr _scaleHwnd;
+        private int _scaleFromX, _scaleFromY, _scaleFromW, _scaleFromH, _scaleToX, _scaleToY, _scaleToW, _scaleToH;
+        private DateTime _scaleStarted;
+        private int _scaleDurationMs;
+        private Action _scalePrepare;
+        private bool _scalePrepareFired;
+        private Action _scaleCompleted;
+
+        /// <summary>
+        /// 平滑放大到目标物理矩形（位置+尺寸逐帧插值）。窗口尺寸变化会触发 SizeChanged → UpdateThumbnailRect，
+        /// DWM 缩略图按物理客户区像素缩放铺满——内容始终是实时的窗口内容，不会出现窗口重排的白帧。
+        /// 缓动 EaseInQuad（开始慢、后面快）；在动画完成前 ~20ms 触发 prepare（把目标窗口提前切入，
+        /// 与放大中的缩略图融合），动画完全结束触发 completed（隐藏缩略图）。回调均在 UI 线程。
+        /// </summary>
+        public void AnimateScaleTo(int toX, int toY, int toW, int toH, int durationMs,
+            Action prepare, Action completed)
+        {
+            StopMoveAnimation();
+            StopScaleAnimation();
+            var hwnd = new WindowInteropHelper(this).Handle;
+            RECT r;
+            if (hwnd == IntPtr.Zero || Visibility != Visibility.Visible || !GetWindowRect(hwnd, out r))
+            {
+                prepare?.Invoke();
+                completed?.Invoke();
+                return;
+            }
+
+            _scaleHwnd = hwnd;
+            _scaleFromX = r.Left; _scaleFromY = r.Top;
+            _scaleFromW = r.Right - r.Left; _scaleFromH = r.Bottom - r.Top;
+            _scaleToX = toX; _scaleToY = toY; _scaleToW = toW; _scaleToH = toH;
+            _scaleStarted = DateTime.Now;
+            _scaleDurationMs = Math.Max(80, durationMs);
+            _scalePrepare = prepare;
+            _scalePrepareFired = false;
+            _scaleCompleted = completed;
+            _scaleTickHandler = (s, e) => ScaleTick();
+            CompositionTarget.Rendering += _scaleTickHandler;
+        }
+
+        private void ScaleTick()
+        {
+            double t = (DateTime.Now - _scaleStarted).TotalMilliseconds / _scaleDurationMs;
+            if (t >= 1)
+            {
+                t = 1;
+            }
+            double e = t * t; // EaseInQuad：开始慢、后面快（结尾加速，切入窗口更自然）
+
+            int x = _scaleFromX + (int)((_scaleToX - _scaleFromX) * e);
+            int y = _scaleFromY + (int)((_scaleToY - _scaleFromY) * e);
+            int w = _scaleFromW + (int)((_scaleToW - _scaleFromW) * e);
+            int h = _scaleFromH + (int)((_scaleToH - _scaleFromH) * e);
+            SetWindowPos(_scaleHwnd, IntPtr.Zero, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
+
+            // 完成前 ~20ms：提前把目标窗口切入（真实窗口与放大中的缩略图融合，过渡无缝）
+            if (!_scalePrepareFired &&
+                (DateTime.Now - _scaleStarted).TotalMilliseconds >= _scaleDurationMs - 20)
+            {
+                _scalePrepareFired = true;
+                var p = _scalePrepare;
+                _scalePrepare = null;
+                p?.Invoke();
+            }
+
+            if (t >= 1)
+            {
+                var done = _scaleCompleted;
+                StopScaleAnimation();
+                done?.Invoke();
+            }
+        }
+
+        public void StopScaleAnimation()
+        {
+            if (_scaleTickHandler != null)
+            {
+                CompositionTarget.Rendering -= _scaleTickHandler;
+                _scaleTickHandler = null;
+            }
+            _scalePrepare = null;
+            _scaleCompleted = null;
         }
 
         /// <summary>

@@ -798,7 +798,16 @@ namespace Switcheroo
         private void Switch()
         {
             LogDebug("Switch() 执行");
-            foreach (var item in lb.SelectedItems)
+            var targets = lb.SelectedItems.Cast<AppWindowViewModel>().ToList();
+
+            // 单目标 + 缩略图可见 → “缩略图生长”动画：缩略图平滑放大到目标窗口位置（内容实时、
+            // 像素缩放无白帧），放大到位后无缝切入目标窗口。多选框/无缩略图走下方原有路径。
+            if (targets.Count == 1 && TryPlayThumbnailZoom(targets[0]))
+            {
+                return;
+            }
+
+            foreach (var item in targets)
             {
                 var win = (AppWindowViewModel)item;
                 // 授予前台权限：模拟一次 Alt 键。Switcheroo 是后台进程（低层钩子），
@@ -811,6 +820,60 @@ namespace Switcheroo
             }
 
             HideWindow();
+        }
+
+        /// <summary>
+        /// “缩略图生长”切换动画：缩略图窗口从当前位置平滑放大到目标窗口的物理位置与大小，
+        /// 主窗口同步淡出；动画完成后切换目标窗口（内容与放大后的缩略图一致，无缝衔接）并隐藏缩略图。
+        /// 返回 false 表示不满足动画条件（无缩略图 / 目标最小化 / 矩形无效），按原有方式直接切换。
+        /// </summary>
+        private bool TryPlayThumbnailZoom(AppWindowViewModel target)
+        {
+            if (_thumbnailPreviewWindow == null ||
+                _thumbnailPreviewWindow.Visibility != Visibility.Visible)
+            {
+                return false;
+            }
+
+            var targetHwnd = target.AppWindow.HWnd;
+            // 目标最小化时无可见内容可放大（且缩略图通常也为空），走原有切换
+            if (IsIconic(targetHwnd))
+            {
+                return false;
+            }
+
+            var previewHwnd = new WindowInteropHelper(_thumbnailPreviewWindow).Handle;
+            RECT pf;
+            RECT tf;
+            if (!GetWindowRect(previewHwnd, out pf) || !GetWindowRect(targetHwnd, out tf))
+            {
+                return false;
+            }
+            if (tf.Right - tf.Left <= 0 || tf.Bottom - tf.Top <= 0)
+            {
+                return false;
+            }
+
+            _thumbnailPreviewWindow.AnimateScaleTo(tf.Left, tf.Top, tf.Right - tf.Left, tf.Bottom - tf.Top, 160,
+                prepare: () =>
+                {
+                    // 动画临近完成：提前切入目标窗口（真实窗口与放大中的缩略图融合，过渡无缝）
+                    SimulateAltGrant();
+                    target.AppWindow.SwitchToLastVisibleActivePopup();
+                    ForceForegroundWindow(target.AppWindow.HWnd);
+                },
+                completed: () =>
+                {
+                    // 动画完成：隐藏缩略图，露出真实窗口（位置尺寸一致，无跳变）
+                    if (_thumbnailPreviewWindow != null)
+                    {
+                        _thumbnailPreviewWindow.HideThumbnail();
+                    }
+                });
+
+            // 主窗口同步淡出（缩小 hidePreview=false：缩略图保留放大动画待切入）
+            HideWindow(false);
+            return true;
         }
 
         /// <summary>
@@ -914,11 +977,14 @@ namespace Switcheroo
             }
         }
 
-        private void HideWindow()
+        private void HideWindow(bool hidePreview = true)
         {
             _hidePreviewTimer.Stop();
             _keepFocusTimer.Stop();
-            HideThumbnailPreview();
+            if (hidePreview)
+            {
+                HideThumbnailPreview();
+            }
 
             if (_windowCloser != null)
             {
@@ -1555,6 +1621,9 @@ namespace Switcheroo
                 _thumbnailPreviewWindow.Closed += (s, args) => _thumbnailPreviewWindow = null;
             }
 
+            // 停止可能残留的“切换放大”动画（否则其 Rendering 回调会继续 SetWindowPos 干扰本次正常显示）
+            _thumbnailPreviewWindow.StopScaleAnimation();
+
             // 缩略图固定显示在主窗口右侧，定位用主窗口所在屏（_activeScreen）；
             // 用鼠标屏在跨 DPI 键盘唤起时鼠标可能停在旧屏 → 缩略图错误出现在主屏幕
             var screen = _activeScreen ?? MultiMonitorHelper.GetMouseScreen();
@@ -1671,6 +1740,9 @@ namespace Switcheroo
 
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool IsIconic(IntPtr hWnd);
 
         private void HideThumbnailPreview()
         {
