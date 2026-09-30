@@ -457,6 +457,8 @@ namespace Switcheroo
         {
             if (e.Button == MouseButtons.Left)
             {
+                // 托盘唤出同样先退出后台模式
+                EndBackgroundMode();
                 if (!_isWindowShown || _isHiding)
                 {
                     _isWindowShown = true;
@@ -664,7 +666,18 @@ namespace Switcheroo
 
         private static bool AreWindowsRelated(SystemWindow window1, SystemWindow window2)
         {
-            return window1.HWnd == window2.HWnd || window1.Process.Id == window2.Process.Id;
+            if (window1 == null || window2 == null)
+            {
+                return false;
+            }
+            if (window1.HWnd == window2.HWnd)
+            {
+                return true;
+            }
+            // Process 在启动早期/特殊窗口可能不可用（拿不到进程句柄）
+            var process1 = window1.Process;
+            var process2 = window2.Process;
+            return process1 != null && process2 != null && process1.Id == process2.Id;
         }
 
         /// <summary>
@@ -815,6 +828,92 @@ namespace Switcheroo
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
 
+        // ---- 后台进程化：常驻托盘/钩子状态下把自身降为“后台进程”，降低系统资源占用 ----
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        private static extern IntPtr GetCurrentProcess();
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        private static extern bool SetPriorityClass(IntPtr hProcess, uint dwPriorityClass);
+
+        [System.Runtime.InteropServices.DllImport("psapi.dll")]
+        private static extern bool EmptyWorkingSet(IntPtr hProcess);
+
+        // PROCESS_MODE_BACKGROUND_BEGIN/END（Windows 8+）：进入后台模式后系统自动降低本进程的
+        // CPU 调度优先级、磁盘 IO 优先级与内存优先级，并优先回收其内存页 —— 官方“后台任务”机制。
+        private const uint PROCESS_MODE_BACKGROUND_BEGIN = 0x00100000;
+        private const uint PROCESS_MODE_BACKGROUND_END = 0x00200000;
+
+        /// <summary>进入后台模式（空闲/隐藏状态）：降低 CPU/IO/内存优先级，让系统优先回收资源。</summary>
+        private void BeginBackgroundMode()
+        {
+            try
+            {
+                SetPriorityClass(GetCurrentProcess(), PROCESS_MODE_BACKGROUND_BEGIN);
+            }
+            catch
+            {
+            }
+        }
+
+        /// <summary>退出后台模式（唤出显示）：恢复普通调度，保证显示与交互流畅。</summary>
+        private void EndBackgroundMode()
+        {
+            try
+            {
+                SetPriorityClass(GetCurrentProcess(), PROCESS_MODE_BACKGROUND_END);
+            }
+            catch
+            {
+            }
+        }
+
+        /// <summary>隐藏完成后延迟裁剪工作集：进一步把空闲内存页还给系统（不影响淡出动画）。</summary>
+        private void TrimWorkingSetLater()
+        {
+            var trimmer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(800)
+            };
+            trimmer.Tick += (s, e) =>
+            {
+                trimmer.Stop();
+                if (!_isWindowShown)
+                {
+                    try
+                    {
+                        EmptyWorkingSet(GetCurrentProcess());
+                    }
+                    catch
+                    {
+                    }
+                }
+            };
+            trimmer.Start();
+        }
+
+        /// <summary>
+        /// 给主窗口加 WS_EX_TOOLWINDOW（工具窗口）：任务管理器"应用/后台进程"分类依据是进程是否有
+        /// 可见的非工具顶层窗口；主窗口常驻透明可见（显示方案必须），加工具窗口样式后任务管理器将其
+        /// 归为"后台进程"（工具窗口不显示在任务栏/Alt+Tab，Switcheroo 本就拦截 Alt+Tab，无功能影响）。
+        /// </summary>
+        private void MakeWindowToolWindow()
+        {
+            try
+            {
+                var hwnd = new WindowInteropHelper(this).Handle;
+                if (hwnd != IntPtr.Zero)
+                {
+                    const int WS_EX_TOOLWINDOW = 0x80;
+                    int ex = GetWindowLong(hwnd, GWL_EXSTYLE);
+                    SetWindowLong(hwnd, GWL_EXSTYLE, ex | WS_EX_TOOLWINDOW);
+                }
+            }
+            catch
+            {
+            }
+        }
+
         private void HideWindow()
         {
             _hidePreviewTimer.Stop();
@@ -848,6 +947,9 @@ namespace Switcheroo
                 Opacity = 0;
                 _isHiding = false;
                 LogDebug("HideWindow 淡出完成");
+                // 隐藏完成即空闲：退回后台模式，并延迟裁剪工作集降低内存占用
+                BeginBackgroundMode();
+                TrimWorkingSetLater();
             };
             BeginAnimation(OpacityProperty, fadeOut);
         }
@@ -857,6 +959,8 @@ namespace Switcheroo
 
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+
+        private const int GWL_EXSTYLE = -20;
 
         /// <summary>
         /// 显示前把窗口置为全透明（定位完成、动画前调用）。
@@ -998,6 +1102,10 @@ namespace Switcheroo
 
         private void AltTabPressed(object sender, AltTabHookEventArgs e)
         {
+            // 唤出链路开始：先退出后台模式恢复普通调度（hook 回调在高优先级的程序上执行），
+            // 避免显示/交互受后台模式低优先级影响
+            EndBackgroundMode();
+
             if (!Settings.Default.AltTabHook)
             {
                 // Ignore Alt+Tab presses if the hook is not activated by the user
@@ -1804,6 +1912,9 @@ namespace Switcheroo
             TryApplyUiFont();
             HookUpSelectionHighlight();
             PrepareOffscreenCache();
+            // 任务管理器分类依据 = 进程是否有可见的非工具顶层窗口。主窗口常驻透明可见，
+            // 加 WS_EX_TOOLWINDOW 让任务管理器把它归为"后台进程"（不影响功能，见 MakeWindowToolWindow）
+            MakeWindowToolWindow();
         }
 
         /// <summary>

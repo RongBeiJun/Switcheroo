@@ -31,6 +31,14 @@ namespace Switcheroo
         {
             Localization.EnsureLoaded();
             base.OnStartup(e);
+
+            // 常驻透明方案依赖主窗口启动即预显示（透明停屏内，见 PrepareOffscreenCache）：
+            // 保证首次 Alt+Tab 唤出无需现场建窗/布局，消除启动后首次唤出的大延迟。
+            // （StartupUri 的自动显示偶发未生效时兜底，重复 Show 无害）
+            if (MainWindow != null && !MainWindow.IsVisible)
+            {
+                MainWindow.Show();
+            }
         }
     }
 }
