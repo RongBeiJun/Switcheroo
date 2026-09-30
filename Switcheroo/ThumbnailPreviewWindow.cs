@@ -2,6 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using ManagedWinapi.Windows;
@@ -28,8 +29,24 @@ namespace Switcheroo
         [DllImport("user32.dll")]
         private static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
 
+        [DllImport("user32.dll")]
+        private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
+            int X, int Y, int cx, int cy, uint uFlags);
+
+        private const uint SWP_NOSIZE = 0x0001;
+        private const uint SWP_NOZORDER = 0x0004;
+        private const uint SWP_NOACTIVATE = 0x0010;
+
         private IntPtr _thumbnailId;
         private IntPtr _sourceHwnd;
+
+        /// <summary>物理坐标移动动画（CompositionTarget.Rendering 逐帧 SetWindowPos）。</summary>
+        private EventHandler _moveRenderHandler;
+        private int _moveFromX, _moveFromY, _moveToX, _moveToY;
+        private DateTime _moveStarted;
 
         public ThumbnailPreviewWindow()
         {
@@ -201,9 +218,11 @@ namespace Switcheroo
         /// </summary>
         public void ShowFadeIn()
         {
+            StopMoveAnimation();
             Show();
             Opacity = 0;
-            var anim = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(120));
+            // 与主窗口进入动画一致（180ms 减缓的淡入）
+            var anim = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180));
             anim.EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut };
             BeginAnimation(OpacityProperty, anim);
         }
@@ -223,28 +242,67 @@ namespace Switcheroo
         }
 
         /// <summary>
-        /// 已可见时平滑吸附移动到新位置（悬停切换列表项时跟随）。
+        /// 已可见时平滑吸附移动到新物理坐标（悬停/切换列表项时跟随）。
+        /// 用物理坐标逐帧插值（起点取 GetWindowRect 当前物理矩形），不依赖 WPF Left/Top 与 DPI context——
+        /// 跨 DPI 屏物理定位后 WPF Left/Top 未同步，若用 WPF 属性动画会从错误起点跳变；设置 WPF Left/Top 又会
+        /// 触发 WPF 按错误 DPI context 重新定位（缩略图被拉回主屏）。
         /// </summary>
-        public void MoveAnimated(double left, double top)
+        public void MoveAnimated(int physLeft, int physTop)
         {
-            if (Visibility != Visibility.Visible)
+            var hwnd = new WindowInteropHelper(this).Handle;
+            if (hwnd == IntPtr.Zero)
             {
-                Left = left;
-                Top = top;
                 return;
             }
 
-            if (Math.Abs(Left - left) > 0.5)
+            RECT r;
+            if (Visibility != Visibility.Visible || !GetWindowRect(hwnd, out r))
             {
-                var animX = new DoubleAnimation(Left, left, TimeSpan.FromMilliseconds(140));
-                animX.EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.25 };
-                BeginAnimation(LeftProperty, animX);
+                // 不可见/读不到矩形：直接物理定位
+                SetWindowPos(hwnd, IntPtr.Zero, physLeft, physTop, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                return;
             }
-            if (Math.Abs(Top - top) > 0.5)
+
+            _moveFromX = r.Left;
+            _moveFromY = r.Top;
+            _moveToX = physLeft;
+            _moveToY = physTop;
+            if (Math.Abs(_moveFromX - _moveToX) < 1 && Math.Abs(_moveFromY - _moveToY) < 1)
             {
-                var animY = new DoubleAnimation(Top, top, TimeSpan.FromMilliseconds(140));
-                animY.EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.25 };
-                BeginAnimation(TopProperty, animY);
+                return;
+            }
+
+            // 连续切换时取消上一次未完成的移动动画（起点总是当前物理位置）
+            StopMoveAnimation();
+            _moveStarted = DateTime.Now;
+            _moveRenderHandler = (s, e) => MoveRenderTick(hwnd);
+            CompositionTarget.Rendering += _moveRenderHandler;
+        }
+
+        private void MoveRenderTick(IntPtr hwnd)
+        {
+            double t = (DateTime.Now - _moveStarted).TotalMilliseconds / 140.0;
+            if (t >= 1)
+            {
+                t = 1;
+                StopMoveAnimation();
+            }
+
+            // 复刻原 WPF BackEase(EaseOut, Amplitude=0.25) 的轻微过头吸附感
+            const double overshoot = 0.25;
+            double u = t - 1;
+            double eased = 1 + (overshoot + 1) * u * u * u + overshoot * u * u;
+            int x = (int)Math.Round(_moveFromX + (_moveToX - _moveFromX) * eased);
+            int y = (int)Math.Round(_moveFromY + (_moveToY - _moveFromY) * eased);
+            SetWindowPos(hwnd, IntPtr.Zero, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+
+        private void StopMoveAnimation()
+        {
+            if (_moveRenderHandler != null)
+            {
+                CompositionTarget.Rendering -= _moveRenderHandler;
+                _moveRenderHandler = null;
             }
         }
 
@@ -257,7 +315,9 @@ namespace Switcheroo
             {
                 return;
             }
-            var anim = new DoubleAnimation(Opacity, 0, TimeSpan.FromMilliseconds(100));
+            StopMoveAnimation();
+            // 与主窗口退出动画一致（80ms 加快的淡出）
+            var anim = new DoubleAnimation(Opacity, 0, TimeSpan.FromMilliseconds(80));
             anim.EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn };
             anim.Completed += (s, e) =>
             {

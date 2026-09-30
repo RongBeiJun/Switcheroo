@@ -840,8 +840,8 @@ namespace Switcheroo
             _showStable = false;
             LogDebug("HideWindow 淡出开始 Opacity=" + Opacity);
 
-            // 透明淡出后停屏内（AllowsTransparency 真透明 → 无残留黑窗/边框）
-            var fadeOut = new DoubleAnimation(Opacity, 0, TimeSpan.FromMilliseconds(120));
+            // 透明淡出后停屏内（AllowsTransparency 真透明 → 无残留黑窗/边框）——退出加快到 80ms
+            var fadeOut = new DoubleAnimation(Opacity, 0, TimeSpan.FromMilliseconds(80));
             fadeOut.EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn };
             fadeOut.Completed += (s, e) =>
             {
@@ -874,7 +874,8 @@ namespace Switcheroo
         private void AnimateFadeIn()
         {
             LogDebug("AnimateFadeIn 淡入开始");
-            var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(120));
+            // 进入减缓到 180ms（与缩略图进入动画一致）
+            var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180));
             fadeIn.EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut };
             BeginAnimation(OpacityProperty, fadeIn);
         }
@@ -1531,15 +1532,15 @@ namespace Switcheroo
             left = Math.Max(sb.X, Math.Min(left, sb.X + sb.Width - previewW));
             top = Math.Max(sb.Y, Math.Min(top, sb.Y + sb.Height - previewH));
 
-            // 同屏微调（位置差小、真实显示中）→ WPF DIP 平滑移动（同屏 DPI 一致，换算正确）；
+            // 同屏微调（位置差小、真实显示中）→ 物理坐标平滑移动（新 MoveAnimated 内部物理插值，
+            // 起点取当前物理矩形，不依赖 WPF Left/Top，跨 DPI 无错屏）；
             // 跨屏/首次/残留 → 物理 SetWindowPos 精确定位 + 纯淡入（杜绝 DIP 换算错屏）
             int dist = Math.Abs(prevRect.Left - left) + Math.Abs(prevRect.Top - top);
             if (_thumbnailPreviewWindow.Visibility == Visibility.Visible &&
                 _thumbnailPreviewWindow.Opacity > 0.01 &&
                 dist < 400)
             {
-                var scale = MultiMonitorHelper.GetDpiScale(screen);
-                _thumbnailPreviewWindow.MoveAnimated(left / scale, top / scale);
+                _thumbnailPreviewWindow.MoveAnimated(left, top);
             }
             else
             {
