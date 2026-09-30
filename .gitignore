@@ -182,3 +182,7 @@ Desktop.ini
 $RECYCLE.BIN/
 
 Installer/Output
+
+# 本地打包脚本与产物（不纳入版本管理）
+build-release-zip.ps1
+dist/
